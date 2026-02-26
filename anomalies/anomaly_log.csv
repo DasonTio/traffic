@@ -1,0 +1,18 @@
+Timestamp,Frame,Track_ID,Class,Anomaly_Type,Confidence,BBox,Crop_Path,Frame_Path
+2026-02-26 09:33:03,957,107,Truck,truck_in_fast_lane,0.576,"(150,223)-(199,266)",anomalies/crops/truck_in_fast_lane_107_20260226_093303.jpg,anomalies/frames/truck_in_fast_lane_107_20260226_093303.jpg
+2026-02-26 09:33:22,1280,131,Truck,truck_in_fast_lane,0.634,"(144,237)-(202,287)",anomalies/crops/truck_in_fast_lane_131_20260226_093322.jpg,anomalies/frames/truck_in_fast_lane_131_20260226_093322.jpg
+2026-02-26 09:34:14,2176,184,Truck,truck_in_fast_lane,0.481,"(185,201)-(221,238)",anomalies/crops/truck_in_fast_lane_184_20260226_093414.jpg,anomalies/frames/truck_in_fast_lane_184_20260226_093414.jpg
+2026-02-26 09:35:19,3282,287,Truck,truck_in_fast_lane,0.517,"(292,168)-(327,213)",anomalies/crops/truck_in_fast_lane_287_20260226_093519.jpg,anomalies/frames/truck_in_fast_lane_287_20260226_093519.jpg
+2026-02-26 09:35:34,3521,308,Truck,truck_in_fast_lane,0.642,"(317,138)-(476,336)",anomalies/crops/truck_in_fast_lane_308_20260226_093534.jpg,anomalies/frames/truck_in_fast_lane_308_20260226_093534.jpg
+2026-02-26 09:35:53,3829,341,Truck,truck_in_fast_lane,0.765,"(138,214)-(210,301)",anomalies/crops/truck_in_fast_lane_341_20260226_093553.jpg,anomalies/frames/truck_in_fast_lane_341_20260226_093553.jpg
+2026-02-26 09:35:54,3842,336,Truck,truck_in_fast_lane,0.659,"(308,198)-(360,269)",anomalies/crops/truck_in_fast_lane_336_20260226_093554.jpg,anomalies/frames/truck_in_fast_lane_336_20260226_093554.jpg
+2026-02-26 09:35:54,3854,348,Truck,truck_in_fast_lane,0.503,"(208,176)-(243,215)",anomalies/crops/truck_in_fast_lane_348_20260226_093554.jpg,anomalies/frames/truck_in_fast_lane_348_20260226_093554.jpg
+2026-02-26 09:36:29,4413,418,Truck,truck_in_fast_lane,0.530,"(139,242)-(203,299)",anomalies/crops/truck_in_fast_lane_418_20260226_093629.jpg,anomalies/frames/truck_in_fast_lane_418_20260226_093629.jpg
+2026-02-26 09:36:32,4459,425,Truck,truck_in_fast_lane,0.544,"(132,245)-(198,304)",anomalies/crops/truck_in_fast_lane_425_20260226_093632.jpg,anomalies/frames/truck_in_fast_lane_425_20260226_093632.jpg
+2026-02-26 09:37:01,4932,468,Truck,truck_in_fast_lane,0.520,"(314,261)-(386,338)",anomalies/crops/truck_in_fast_lane_468_20260226_093701.jpg,anomalies/frames/truck_in_fast_lane_468_20260226_093701.jpg
+2026-02-26 09:38:44,6594,623,Truck,truck_in_fast_lane,0.552,"(146,246)-(206,305)",anomalies/crops/truck_in_fast_lane_623_20260226_093844.jpg,anomalies/frames/truck_in_fast_lane_623_20260226_093844.jpg
+2026-02-26 09:38:50,6688,642,Truck,truck_in_fast_lane,0.515,"(169,206)-(212,246)",anomalies/crops/truck_in_fast_lane_642_20260226_093850.jpg,anomalies/frames/truck_in_fast_lane_642_20260226_093850.jpg
+2026-02-26 09:39:29,7319,701,Truck,truck_in_fast_lane,0.553,"(325,250)-(387,322)",anomalies/crops/truck_in_fast_lane_701_20260226_093929.jpg,anomalies/frames/truck_in_fast_lane_701_20260226_093929.jpg
+2026-02-26 09:39:47,7618,735,Truck,truck_in_fast_lane,0.748,"(123,229)-(185,307)",anomalies/crops/truck_in_fast_lane_735_20260226_093947.jpg,anomalies/frames/truck_in_fast_lane_735_20260226_093947.jpg
+2026-02-26 09:39:56,7763,754,Truck,truck_in_fast_lane,0.493,"(162,228)-(214,273)",anomalies/crops/truck_in_fast_lane_754_20260226_093956.jpg,anomalies/frames/truck_in_fast_lane_754_20260226_093956.jpg
+2026-02-26 09:40:59,8807,812,Truck,truck_in_fast_lane,0.686,"(328,205)-(409,305)",anomalies/crops/truck_in_fast_lane_812_20260226_094059.jpg,anomalies/frames/truck_in_fast_lane_812_20260226_094059.jpg
