@@ -2,16 +2,19 @@ import cv2
 import numpy as np
 import math
 import time
+import os
+import csv
+from datetime import datetime
 from ultralytics import YOLO
 from cap_from_youtube import cap_from_youtube
 
 # ───────────────────────────────────────────────────────────────
-# CONFIG
+# CONFIG — adjust these values as needed
 # ───────────────────────────────────────────────────────────────
-CONFIDENCE_THRESHOLD = 0.4
-STOPPED_THRESHOLD_FRAMES = 30
-MOVEMENT_THRESHOLD = 5.0
-DWELL_FRAMES_REQUIRED = 3  # must be in zone for N frames before flagging
+CONFIDENCE_THRESHOLD = 0.45          # min detection confidence (0.0 - 1.0)
+STOPPED_THRESHOLD_FRAMES = 30      # frames to confirm a vehicle is stopped
+MOVEMENT_THRESHOLD = 5.0           # max pixel movement to count as "stopped"
+DWELL_FRAMES_REQUIRED = 3          # consecutive frames in zone before flagging
 
 # Color palette (BGR)
 COLOR_BG_DARK = (20, 20, 20)
@@ -25,6 +28,12 @@ COLOR_WHITE = (255, 255, 255)
 COLOR_SHADOW = (0, 0, 0)
 
 COCO_NAMES = {2: "Car", 3: "Motorcycle", 5: "Bus", 7: "Truck"}
+
+# Output directory for anomaly evidence
+OUTPUT_DIR = "anomalies"
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+os.makedirs(os.path.join(OUTPUT_DIR, "crops"), exist_ok=True)
+os.makedirs(os.path.join(OUTPUT_DIR, "frames"), exist_ok=True)
 
 # ───────────────────────────────────────────────────────────────
 # HELPER FUNCTIONS
@@ -120,6 +129,40 @@ def draw_roi_zones(img, fast_zones, emg_zones):
             draw_label(img, f"EMERGENCY {i+1}", (cx - 40, cy), COLOR_EMERGENCY, 0.35)
 
 
+def save_anomaly(frame, display, box, track_id, class_name, anomaly_type, conf, csv_writer, frame_count):
+    """Save cropped vehicle, full annotated frame, and log to CSV."""
+    x1, y1, x2, y2 = box
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    tag = f"{anomaly_type}_{int(track_id)}_{timestamp}"
+
+    # Crop the vehicle from the original frame (with padding)
+    h, w = frame.shape[:2]
+    pad = 15
+    cx1 = max(0, x1 - pad)
+    cy1 = max(0, y1 - pad)
+    cx2 = min(w, x2 + pad)
+    cy2 = min(h, y2 + pad)
+    crop = frame[cy1:cy2, cx1:cx2]
+
+    crop_path = os.path.join(OUTPUT_DIR, "crops", f"{tag}.jpg")
+    frame_path = os.path.join(OUTPUT_DIR, "frames", f"{tag}.jpg")
+
+    cv2.imwrite(crop_path, crop)
+    cv2.imwrite(frame_path, display)
+
+    csv_writer.writerow([
+        datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        frame_count,
+        int(track_id),
+        class_name,
+        anomaly_type,
+        f"{conf:.3f}",
+        f"({x1},{y1})-({x2},{y2})",
+        crop_path,
+        frame_path
+    ])
+
+
 # ───────────────────────────────────────────────────────────────
 # SETUP
 # ───────────────────────────────────────────────────────────────
@@ -157,8 +200,17 @@ counted_emergency_ids = set()
 
 prev_time = time.time()
 fps = 0.0
+frame_count = 0
+
+# Open CSV log file
+csv_path = os.path.join(OUTPUT_DIR, "anomaly_log.csv")
+csv_file = open(csv_path, "w", newline="")
+csv_writer = csv.writer(csv_file)
+csv_writer.writerow(["Timestamp", "Frame", "Track_ID", "Class", "Anomaly_Type",
+                     "Confidence", "BBox", "Crop_Path", "Frame_Path"])
 
 print(f"Frame size: {frame_w}x{frame_h}")
+print(f"Anomaly output: {os.path.abspath(OUTPUT_DIR)}/")
 print("Processing traffic data... Press 'q' to stop.")
 
 # ───────────────────────────────────────────────────────────────
@@ -168,13 +220,14 @@ while True:
     ret, frame = cap.read()
     if not ret:
         break
+    frame_count += 1
 
     # FPS calculation
     curr_time = time.time()
     fps = 0.8 * fps + 0.2 * (1.0 / max(curr_time - prev_time, 1e-6))
     prev_time = curr_time
 
-    results = model.track(frame, persist=True, classes=[2, 5, 7], verbose=False)
+    results = model.track(frame, persist=True, classes=[2, 5, 7], conf=CONFIDENCE_THRESHOLD, verbose=False)
     display = frame.copy()
 
     # Draw ROI zones
@@ -224,6 +277,9 @@ while True:
                         if track_id not in counted_fast_lane_ids:
                             fast_lane_anomalies_count += 1
                             counted_fast_lane_ids.add(track_id)
+                            save_anomaly(frame, display, (x1, y1, x2, y2),
+                                         track_id, class_name, "truck_in_fast_lane",
+                                         conf, csv_writer, frame_count)
 
                         # Pulsing border effect
                         pulse = int(180 + 75 * math.sin(time.time() * 6))
@@ -247,6 +303,9 @@ while True:
                     if track_id not in counted_emergency_ids:
                         emergency_lane_anomalies_count += 1
                         counted_emergency_ids.add(track_id)
+                        save_anomaly(frame, display, (x1, y1, x2, y2),
+                                     track_id, class_name, "stopped_in_emergency",
+                                     conf, csv_writer, frame_count)
 
                     pulse = int(180 + 75 * math.sin(time.time() * 6))
                     border_color = (0, pulse, 255)
@@ -272,7 +331,12 @@ while True:
 
 cap.release()
 cv2.destroyAllWindows()
-print(f"\n{'='*40}")
+csv_file.close()
+
+print(f"\n{'='*50}")
 print(f"  Total Fast Lane Violations : {fast_lane_anomalies_count}")
 print(f"  Total Emergency Lane Stops : {emergency_lane_anomalies_count}")
-print(f"{'='*40}")
+print(f"  Anomaly log saved to       : {os.path.abspath(csv_path)}")
+print(f"  Cropped evidence in        : {os.path.abspath(os.path.join(OUTPUT_DIR, 'crops'))}/")
+print(f"  Full frames in             : {os.path.abspath(os.path.join(OUTPUT_DIR, 'frames'))}/")
+print(f"{'='*50}")
