@@ -1,4 +1,4 @@
-opencv-python
-numpy
-ultralytics
-cap-from-youtube
+opencv-python==4.13.0.92
+numpy==2.4.4
+ultralytics==8.4.33
+cap-from-youtube==0.2.0
