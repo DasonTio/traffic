@@ -1,0 +1,48 @@
+# ----------------------------
+# Python cache / tooling
+# ----------------------------
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+.venv/
+venv/
+env/
+.DS_Store
+
+# ----------------------------
+# Generated runtime artifacts
+# ----------------------------
+runs/
+anomalies/
+dataset/crops/
+dataset/sequences/
+dataset/_tmp_sequences_*/
+
+# Generated CSV manifests/logs (keep code/config only in git)
+dataset/normal_sequences.csv
+dataset/sequence_manifest.csv
+dataset/sequence_review.csv
+anomalies/anomaly_log.csv
+
+# ----------------------------
+# Model/checkpoint artifacts
+# ----------------------------
+models/
+checkpoints/
+*.ckpt
+*.pth
+*.pt
+*.onnx
+*.engine
+
+# Keep repository config tracked
+!configs/
+!configs/*.yaml
+!configs/*.yml
