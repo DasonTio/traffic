@@ -65,6 +65,7 @@ class SceneConfig:
     ganomaly_settings: dict[str, Any]
     ganomaly_checkpoints: dict[str, Path]
     coco_names: dict[int, str]
+    raw_config: dict
 
     @classmethod
     def load(cls, path: str | Path) -> "SceneConfig":
@@ -128,6 +129,7 @@ class SceneConfig:
             ganomaly_settings={key: value for key, value in ganomaly_cfg.items() if key != "checkpoints"},
             ganomaly_checkpoints=checkpoints,
             coco_names={int(key): value for key, value in raw.get("coco_names", COCO_NAMES).items()},
+            raw_config=raw,
         )
 
     def lane_for_id(self, lane_id: str | None) -> LaneConfig | None:

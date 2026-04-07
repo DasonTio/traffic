@@ -39,7 +39,7 @@ lanes:
   - id: fast_lane_1
     label: Fast Lane 1
     category: fast
-    direction: [-0.45, 0.89]
+    direction: [0.45, -0.89]  # bottom → top (upward in BEV)
     polygon:
       - [116, 303]
       - [152, 261]
@@ -54,7 +54,7 @@ lanes:
   - id: fast_lane_2
     label: Fast Lane 2
     category: fast
-    direction: [0.45, 0.89]
+    direction: [0.45, 0.89]   # top → bottom (downward in BEV)
     polygon:
       - [278, 193]
       - [315, 193]
@@ -70,7 +70,7 @@ lanes:
   - id: emergency_lane_1
     label: Emergency 1
     category: emergency
-    direction: [-0.48, 0.87]
+    direction: [0.48, -0.87]  # same flow as fast_lane_1 (bottom → top)
     polygon:
       - [4, 199]
       - [51, 180]
@@ -116,14 +116,25 @@ thresholds:
   smoothing_window: 5
   min_sequence_frames: 16
   lane_violation_seconds: 0.5
-  wrong_way_seconds: 1.0
+  wrong_way_seconds: 2.0
   stopped_vehicle_seconds: 2.0
   sudden_stop_window_seconds: 1.5
   stopped_speed_threshold: 2.5
-  motion_floor: 4.0
-  wrong_way_alignment_threshold: -0.25
+  motion_floor: 8.0
+  wrong_way_alignment_threshold: -0.5
   sudden_stop_delta: 6.0
   congestion_slow_ratio: 0.65
   congestion_min_active_tracks: 3
   ganomaly_high_threshold: 1.0
   event_gap_frames: 5
+  min_track_age_frames: 15
+
+enhancement:
+  enabled: false
+  clahe_enabled: true
+  clahe_clip_limit: 2.0
+  clahe_tile_size: 8
+  denoise_enabled: false
+  denoise_strength: 6
+  sharpen_enabled: true
+  sharpen_amount: 0.5

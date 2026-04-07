@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import argparse
+import sys
 import time
 from pathlib import Path
 
 import cv2
+import numpy as np
 from ultralytics import YOLO
 
 from .config import SceneConfig
@@ -39,6 +41,28 @@ def _format_anomaly_label(name: str) -> str:
     return name.replace("_", " ").upper()
 
 
+def enhance_frame(frame: np.ndarray, settings: dict) -> np.ndarray:
+    """Apply image enhancements: CLAHE, denoising, sharpening."""
+    result = frame
+    if settings.get("clahe_enabled", False):
+        lab = cv2.cvtColor(result, cv2.COLOR_BGR2LAB)
+        l_channel, a, b = cv2.split(lab)
+        clip_limit = float(settings.get("clahe_clip_limit", 2.0))
+        tile_size = int(settings.get("clahe_tile_size", 8))
+        clahe = cv2.createCLAHE(clipLimit=clip_limit, tileGridSize=(tile_size, tile_size))
+        l_channel = clahe.apply(l_channel)
+        lab = cv2.merge([l_channel, a, b])
+        result = cv2.cvtColor(lab, cv2.COLOR_LAB2BGR)
+    if settings.get("denoise_enabled", False):
+        strength = int(settings.get("denoise_strength", 6))
+        result = cv2.fastNlMeansDenoisingColored(result, None, strength, strength, 7, 21)
+    if settings.get("sharpen_enabled", False):
+        amount = float(settings.get("sharpen_amount", 0.5))
+        blurred = cv2.GaussianBlur(result, (0, 0), 3)
+        result = cv2.addWeighted(result, 1.0 + amount, blurred, -amount, 0)
+    return result
+
+
 class TrafficAnomalyPipeline:
     def __init__(
         self,
@@ -46,12 +70,15 @@ class TrafficAnomalyPipeline:
         max_frames: int | None = None,
         display: bool = True,
         source_override: str | None = None,
+        skip_frames: int = 1,
     ):
         self.scene = SceneConfig.load(config_path)
         if source_override:
             self.scene.video_source = source_override
         self.max_frames = max_frames
         self.display = display
+        self.skip_frames = max(1, skip_frames)
+        self.enhancement = self.scene.raw_config.get("enhancement", {})
 
     def run(self) -> None:
         cap = open_capture(self.scene.video_source, self.scene.video_resolution)
@@ -85,12 +112,24 @@ class TrafficAnomalyPipeline:
         display_fps = 0.0
         prev_time = time.time()
         frame_idx = 0
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        batch_mode = not self.display
+        enhance_enabled = bool(self.enhancement.get("enabled", False))
 
         print(f"Camera: {self.scene.camera_id}")
         print(f"Video source: {self.scene.video_source}")
         print(f"Tracker config: {self.scene.tracker_config}")
         print(f"Run output: {artifacts.root}")
         print(f"Dataset root: {self.scene.dataset_dir}")
+        if self.skip_frames > 1:
+            print(f"Frame skip: processing every {self.skip_frames} frame(s)")
+        if enhance_enabled:
+            print(f"Image enhancement: enabled")
+        if batch_mode and total_frames > 0:
+            effective_total = total_frames // self.skip_frames
+            print(f"Batch mode: {total_frames} total frames → ~{effective_total} to process")
+
+        start_time = time.time()
 
         while True:
             ret, frame = cap.read()
@@ -99,6 +138,27 @@ class TrafficAnomalyPipeline:
             frame_idx += 1
             if self.max_frames and frame_idx > self.max_frames:
                 break
+
+            # Skip frames for faster batch processing
+            if self.skip_frames > 1 and (frame_idx % self.skip_frames) != 0:
+                continue
+
+            # Progress reporting for batch mode
+            if batch_mode and total_frames > 0 and frame_idx % 500 == 0:
+                elapsed = time.time() - start_time
+                pct = frame_idx / total_frames * 100
+                fps_real = frame_idx / max(elapsed, 0.01)
+                remaining = (total_frames - frame_idx) / max(fps_real, 0.01)
+                mins_left = remaining / 60
+                sys.stdout.write(
+                    f"\r[{pct:5.1f}%] Frame {frame_idx}/{total_frames} | "
+                    f"{fps_real:.0f} raw fps | ETA {mins_left:.1f}min"
+                )
+                sys.stdout.flush()
+
+            # Apply image enhancement if enabled
+            if enhance_enabled:
+                frame = enhance_frame(frame, self.enhancement)
 
             now = time.time()
             display_fps = 0.8 * display_fps + 0.2 * (1.0 / max(now - prev_time, 1e-6))
@@ -279,4 +339,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--source", default=None, help="Optional override for the configured video source.")
     parser.add_argument("--max-frames", type=int, default=None, help="Stop after N frames.")
     parser.add_argument("--no-display", action="store_true", help="Disable the OpenCV preview window.")
+    parser.add_argument("--batch", action="store_true", help="Batch mode: disable display, show progress bar.")
+    parser.add_argument("--skip-frames", type=int, default=1, help="Process every Nth frame (default: 1 = all frames).")
     return parser
+

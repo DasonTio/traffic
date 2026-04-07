@@ -91,6 +91,7 @@ class TrackManager:
         self.speed_window = max(speed_window, 2)
         self.ganomaly_window = int(scene.ganomaly_settings.get("aggregation_window", 20))
         self.ganomaly_alpha = float(scene.ganomaly_settings.get("ema_alpha", 0.3))
+        self.min_track_age = int(scene.thresholds.get("min_track_age_frames", 15))
 
     def stale_ids(self, active_ids: set[int]) -> list[int]:
         return [track_id for track_id in list(self.states.keys()) if track_id not in active_ids]
@@ -118,12 +119,14 @@ class TrackManager:
                 track_id=track_id,
                 class_id=class_id,
                 class_name=class_name,
-                speed_history=deque(maxlen=5),
-                heading_history=deque(maxlen=5),
+                speed_history=deque(maxlen=10),
+                heading_history=deque(maxlen=10),
                 recent_speeds=deque(maxlen=self.speed_window),
                 ganomaly_history=deque(maxlen=self.ganomaly_window),
             )
             self.states[track_id] = state
+
+        state.dwell_frames += 1
 
         raw_speed = 0.0
         movement = np.zeros(2, dtype=np.float32)
@@ -160,15 +163,18 @@ class TrackManager:
         lane = self.scene.lane_for_id(lane_id)
         alignment = heading_alignment(heading, lane)
 
-        state.dwell_frames = state.dwell_frames + 1 if lane_id and lane_id == state.last_lane_id else int(lane_id is not None)
+        # Track total frames seen (dwell_frames now counts total age)
+        track_age = state.dwell_frames
         forbidden_lanes = set(self.scene.class_lane_policy.get(class_name, []))
         state.lane_violation_frames = state.lane_violation_frames + 1 if lane_id in forbidden_lanes else 0
 
-        motion_floor = self.scene.thresholds.get("motion_floor", 4.0)
-        wrong_way_limit = self.scene.thresholds.get("wrong_way_alignment_threshold", -0.25)
+        motion_floor = self.scene.thresholds.get("motion_floor", 8.0)
+        wrong_way_limit = self.scene.thresholds.get("wrong_way_alignment_threshold", -0.5)
+        # Only evaluate wrong-way after track has enough frames for heading to stabilize
         state.wrong_way_frames = (
             state.wrong_way_frames + 1
-            if lane_id and state.speed_ema >= motion_floor and alignment <= wrong_way_limit
+            if (lane_id and state.speed_ema >= motion_floor and alignment <= wrong_way_limit
+                and track_age >= self.min_track_age)
             else 0
         )
 
