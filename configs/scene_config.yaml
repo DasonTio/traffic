@@ -5,136 +5,139 @@ video:
   resolution: 360p
   fps: 30.0
 
-model:
-  weights: yolo11n.pt
+detect:
+  weights: yolo11s.pt
   confidence: 0.45
-  detect_classes: [2, 5, 7]
+  classes: [2, 5, 7]
+  coco_names:
+    2: Car
+    5: Bus
+    7: Truck
 
-tracking:
-  tracker_config: bytetrack.yaml
+track:
+  track_high_thresh: 0.25
+  track_low_thresh: 0.10
+  new_track_thresh: 0.25
+  match_thresh: 0.80
+  track_buffer: 30
+  fuse_score: true
+  state_ttl_frames: 30
 
-output:
-  run_root: runs
-  dataset_dir: dataset
-
-coco_names:
-  2: Car
-  3: Motorcycle
-  5: Bus
-  7: Truck
-
-homography:
-  src_points:
-    - [60, 339]
-    - [425, 339]
-    - [306, 188]
-    - [173, 188]
-  dst_points:
-    - [120, 340]
-    - [360, 340]
-    - [360, 40]
-    - [120, 40]
-
-lanes:
-  - id: fast_lane_1
-    label: Fast Lane 1
-    category: fast
-    direction: [0.45, -0.89]  # bottom → top (upward in BEV)
-    polygon:
-      - [116, 303]
-      - [152, 261]
-      - [194, 217]
-      - [219, 197]
-      - [252, 195]
-      - [241, 217]
-      - [234, 239]
-      - [222, 285]
-      - [212, 327]
-      - [106, 321]
-  - id: fast_lane_2
-    label: Fast Lane 2
-    category: fast
-    direction: [0.45, 0.89]   # top → bottom (downward in BEV)
-    polygon:
-      - [278, 193]
-      - [315, 193]
-      - [332, 221]
-      - [350, 257]
-      - [368, 284]
-      - [395, 324]
-      - [404, 338]
-      - [285, 339]
-      - [280, 295]
-      - [277, 248]
-      - [277, 219]
-  - id: emergency_lane_1
-    label: Emergency 1
-    category: emergency
-    direction: [0.48, -0.87]  # same flow as fast_lane_1 (bottom → top)
-    polygon:
-      - [4, 199]
-      - [51, 180]
-      - [120, 167]
-      - [152, 188]
-      - [113, 203]
-      - [70, 225]
-      - [37, 239]
-      - [3, 256]
-  - id: emergency_lane_2
-    label: Emergency 2
-    category: emergency
-    direction: [0.52, 0.85]
-    polygon:
-      - [382, 181]
-      - [425, 206]
-      - [462, 221]
-      - [479, 220]
-      - [479, 178]
-      - [434, 163]
-      - [405, 156]
-      - [382, 147]
-
-class_lane_policy:
-  Car:
-    forbidden_lanes: []
-  Bus:
-    forbidden_lanes: [fast_lane_1, fast_lane_2]
-  Truck:
-    forbidden_lanes: [fast_lane_1, fast_lane_2]
-
-ganomaly:
-  image_size: 64
-  aggregation_window: 20
-  ema_alpha: 0.3
-  default_threshold: 0.02
-  checkpoints:
-    car: models/ganomaly_car.pt
-    truck_bus: models/ganomaly_truck_bus.pt
-
-thresholds:
-  fps_fallback: 30.0
+features:
   smoothing_window: 5
-  min_sequence_frames: 16
-  lane_violation_seconds: 0.5
-  wrong_way_seconds: 2.0
-  stopped_vehicle_seconds: 2.0
   sudden_stop_window_seconds: 1.5
   stopped_speed_threshold: 2.5
   motion_floor: 8.0
   wrong_way_alignment_threshold: -0.5
+  lane_violation_seconds: 0.5
+  wrong_way_seconds: 2.0
+  stopped_vehicle_seconds: 2.0
   sudden_stop_delta: 6.0
   congestion_slow_ratio: 0.65
   congestion_min_active_tracks: 3
-  ganomaly_high_threshold: 1.0
-  event_gap_frames: 5
   min_track_age_frames: 15
+  homography:
+    src_points:
+      - [60, 339]
+      - [425, 339]
+      - [306, 188]
+      - [173, 188]
+    dst_points:
+      - [120, 340]
+      - [360, 340]
+      - [360, 40]
+      - [120, 40]
+  lanes:
+    - id: fast_lane_1
+      label: Fast Lane 1
+      category: fast
+      direction: [0.45, -0.89]
+      polygon:
+        - [116, 303]
+        - [152, 261]
+        - [194, 217]
+        - [219, 197]
+        - [252, 195]
+        - [241, 217]
+        - [234, 239]
+        - [222, 285]
+        - [212, 327]
+        - [106, 321]
+    - id: fast_lane_2
+      label: Fast Lane 2
+      category: fast
+      direction: [0.45, 0.89]
+      polygon:
+        - [278, 193]
+        - [315, 193]
+        - [332, 221]
+        - [350, 257]
+        - [368, 284]
+        - [395, 324]
+        - [404, 338]
+        - [285, 339]
+        - [280, 295]
+        - [277, 248]
+        - [277, 219]
+    - id: emergency_lane_1
+      label: Emergency 1
+      category: emergency
+      direction: [0.48, -0.87]
+      polygon:
+        - [4, 199]
+        - [51, 180]
+        - [120, 167]
+        - [152, 188]
+        - [113, 203]
+        - [70, 225]
+        - [37, 239]
+        - [3, 256]
+    - id: emergency_lane_2
+      label: Emergency 2
+      category: emergency
+      direction: [0.52, 0.85]
+      polygon:
+        - [382, 181]
+        - [425, 206]
+        - [462, 221]
+        - [479, 220]
+        - [479, 178]
+        - [434, 163]
+        - [405, 156]
+        - [382, 147]
+  class_lane_policy:
+    Car:
+      forbidden_lanes: [emergency_lane_1, emergency_lane_2]
+    Bus:
+      forbidden_lanes: [fast_lane_1, fast_lane_2]
+    Truck:
+      forbidden_lanes: [fast_lane_1, fast_lane_2]
 
-enhancement:
-  enabled: false
-  clahe_enabled: true
-  clahe_clip_limit: 2.0
-  clahe_tile_size: 8
-  denoise_enabled: false
-  denoise_strength: 6
-  sharpen_enabled: true
-  sharpen_amount: 0.5
+anomaly:
+  enabled: true
+  checkpoint: models/ganomaly_car.pt
+  image_size: 64
+  crop_padding: 15
+  latent_dim: 128
+  channels: 3
+  batch_size: 32
+  epochs: 20
+  learning_rate: 0.0002
+  beta1: 0.5
+  beta2: 0.999
+  threshold_percentile: 95.0
+  ema_alpha: 0.3
+  aggregation_window: 20
+  dataset_root: dataset/ganomaly
+  save_training_candidates: true
+  min_crop_width: 24
+  min_crop_height: 24
+
+fusion:
+  model_escalation_threshold: 1.0
+  model_only_threshold: 1.2
+  consecutive_frames_required: 3
+  merge_gap_frames: 5
+
+alerts:
+  run_root: runs
