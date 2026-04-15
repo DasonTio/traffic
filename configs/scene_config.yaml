@@ -115,6 +115,12 @@ thresholds:
   fps_fallback: 30.0
   smoothing_window: 5
   min_sequence_frames: 16
+  # Rule enable/disable flags
+  lane_violation_enabled: true
+  wrong_way_enabled: true
+  stopped_vehicle_enabled: false    # 7.7% precision — mostly YOLO jitter on distant objects
+  sudden_stop_enabled: false        # 3.4% precision — same root cause as stopped_vehicle
+  # Rule thresholds
   lane_violation_seconds: 0.5
   wrong_way_seconds: 2.0
   stopped_vehicle_seconds: 2.0
@@ -125,7 +131,7 @@ thresholds:
   sudden_stop_delta: 6.0
   congestion_slow_ratio: 0.65
   congestion_min_active_tracks: 3
-  ganomaly_high_threshold: 1.0
+  ganomaly_high_threshold: 3.5
   event_gap_frames: 5
   min_track_age_frames: 15
 

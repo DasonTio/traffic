@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import cv2
+import numpy as np
 
 from .config import LaneConfig
 
@@ -12,6 +13,22 @@ COLOR_WARNING = (0, 220, 255)
 COLOR_CRITICAL = (60, 60, 255)
 COLOR_NORMAL = (200, 200, 200)
 COLOR_WHITE = (255, 255, 255)
+COLOR_TRAIL = (0, 255, 200)
+
+
+def draw_trail(img, points: list[tuple[int, int]], color=COLOR_TRAIL, max_thickness: int = 3) -> None:
+    """Draw a fading trail polyline. Older segments are thinner and more transparent."""
+    if len(points) < 2:
+        return
+    num_segments = len(points) - 1
+    overlay = img.copy()
+    for i in range(num_segments):
+        progress = (i + 1) / num_segments  # 0→1, older→newer
+        alpha = 0.15 + 0.85 * progress
+        thickness = max(1, int(max_thickness * progress))
+        faded_color = tuple(int(c * alpha) for c in color)
+        cv2.line(overlay, points[i], points[i + 1], faded_color, thickness, cv2.LINE_AA)
+    cv2.addWeighted(overlay, 0.7, img, 0.3, 0, img)
 
 
 def draw_label(img, text: str, position: tuple[int, int], color, font_scale: float = 0.45, thickness: int = 1) -> None:

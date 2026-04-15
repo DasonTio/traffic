@@ -16,7 +16,7 @@ from .geometry import bottom_center, find_lane, project_point
 from .rules import RuleEngine, build_lane_snapshots
 from .storage import RunArtifacts
 from .tracklets import TrackManager
-from .visualization import draw_hud_panel, draw_scene_overlay, draw_track_box
+from .visualization import draw_hud_panel, draw_scene_overlay, draw_track_box, draw_trail, COLOR_CRITICAL, COLOR_WARNING, COLOR_TRAIL
 
 
 def extract_crop(frame, box: tuple[int, int, int, int], pad: int = 15):
@@ -220,6 +220,15 @@ class TrafficAnomalyPipeline:
             for feature, crop, bbox in detections:
                 rule_hits = rule_engine.evaluate(feature, lane_snapshots)
                 fused_hits = self._fuse_hits(feature, rule_hits)
+
+                # Draw trajectory trail
+                trail = track_manager.get_trail(feature.track_id)
+                if fused_hits:
+                    primary_severity = max(fused_hits, key=lambda h: self._severity_rank(str(h["severity"])))["severity"]
+                    trail_color = COLOR_CRITICAL if primary_severity == "critical" else COLOR_WARNING
+                else:
+                    trail_color = COLOR_TRAIL
+                draw_trail(display_frame, trail, color=trail_color)
 
                 if fused_hits:
                     anomalous_track_ids.add(feature.track_id)

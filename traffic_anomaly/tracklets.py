@@ -68,6 +68,7 @@ class TrackState:
     heading_history: deque[np.ndarray]
     recent_speeds: deque[float]
     ganomaly_history: deque[float]
+    trail_px: deque[tuple[int, int]]
     last_bev_point: tuple[float, float] | None = None
     speed_ema: float = 0.0
     accel_ema: float = 0.0
@@ -99,6 +100,12 @@ class TrackManager:
     def remove(self, track_id: int) -> None:
         self.states.pop(track_id, None)
 
+    def get_trail(self, track_id: int) -> list[tuple[int, int]]:
+        state = self.states.get(track_id)
+        if state is None:
+            return []
+        return list(state.trail_px)
+
     def update(
         self,
         frame_idx: int,
@@ -123,10 +130,12 @@ class TrackManager:
                 heading_history=deque(maxlen=10),
                 recent_speeds=deque(maxlen=self.speed_window),
                 ganomaly_history=deque(maxlen=self.ganomaly_window),
+                trail_px=deque(maxlen=40),
             )
             self.states[track_id] = state
 
         state.dwell_frames += 1
+        state.trail_px.append((int(footpoint_px[0]), int(footpoint_px[1])))
 
         raw_speed = 0.0
         movement = np.zeros(2, dtype=np.float32)

@@ -18,6 +18,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--group", required=True, choices=["car", "truck_bus"], help="Class group to train.")
     parser.add_argument("--epochs", type=int, default=10, help="Training epochs.")
     parser.add_argument("--batch-size", type=int, default=32, help="Mini-batch size.")
+    parser.add_argument("--workers", type=int, default=4, help="Number of background threads for DataLoader.")
     parser.add_argument("--lr", type=float, default=2e-4, help="Learning rate.")
     parser.add_argument("--device", default=None, help="Torch device override, e.g. cpu or cuda.")
     parser.add_argument("--output", default=None, help="Optional checkpoint output path.")
@@ -36,6 +37,7 @@ def main() -> None:
         epochs=args.epochs,
         lr=args.lr,
         device=args.device,
+        workers=args.workers,
     )
     result = trainer.train(Path(output))
     print(

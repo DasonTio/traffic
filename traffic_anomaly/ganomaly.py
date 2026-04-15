@@ -9,6 +9,7 @@ import numpy as np
 import torch
 from torch import nn
 from torch.utils.data import DataLoader, Dataset, random_split
+from tqdm import tqdm
 
 
 def class_group_for_name(class_name: str) -> str:
@@ -166,6 +167,7 @@ class GANomalyTrainer:
         epochs: int = 10,
         lr: float = 2e-4,
         device: str | None = None,
+        workers: int = 4,
     ):
         self.dataset_dir = Path(dataset_dir)
         self.class_group = class_group
@@ -174,7 +176,11 @@ class GANomalyTrainer:
         self.batch_size = batch_size
         self.epochs = epochs
         self.lr = lr
+        self.workers = workers
         self.device = torch.device(device or ("cuda" if torch.cuda.is_available() else "cpu"))
+        
+        if self.device.type == "cuda":
+            torch.backends.cudnn.benchmark = True # Aggressive CNN acceleration
 
     def train(self, checkpoint_path: str | Path) -> TrainingResult:
         frame_paths = approved_frame_paths(self.dataset_dir, self.class_group)
@@ -187,8 +193,21 @@ class GANomalyTrainer:
         val_size = max(1, int(round(len(dataset) * 0.1)))
         train_size = len(dataset) - val_size
         train_set, val_set = random_split(dataset, [train_size, val_size])
-        train_loader = DataLoader(train_set, batch_size=self.batch_size, shuffle=True, num_workers=0, drop_last=False)
-        val_loader = DataLoader(val_set, batch_size=self.batch_size, shuffle=False, num_workers=0, drop_last=False)
+        
+        # I/O Optimizations
+        pin_memory = self.device.type == "cuda"
+        persistent_workers = self.workers > 0
+        
+        train_loader = DataLoader(
+            train_set, batch_size=self.batch_size, shuffle=True, 
+            num_workers=self.workers, drop_last=False, 
+            pin_memory=pin_memory, persistent_workers=persistent_workers
+        )
+        val_loader = DataLoader(
+            val_set, batch_size=self.batch_size, shuffle=False, 
+            num_workers=self.workers, drop_last=False,
+            pin_memory=pin_memory, persistent_workers=persistent_workers
+        )
 
         generator = Generator(latent_dim=self.latent_dim).to(self.device)
         discriminator = Discriminator().to(self.device)
@@ -201,12 +220,19 @@ class GANomalyTrainer:
 
         generator.train()
         discriminator.train()
+        
+        metrics_history = []
+        
         for epoch in range(self.epochs):
+            import time
+            epoch_start_time = time.time()
             running_g = 0.0
             running_d = 0.0
             num_batches = 0
-            for batch in train_loader:
-                batch = batch.to(self.device)
+            
+            pbar = tqdm(train_loader, desc=f"Epoch {epoch + 1}/{self.epochs}")
+            for batch in pbar:
+                batch = batch.to(self.device, non_blocking=True)
                 batch_size = batch.size(0)
                 real_targets = torch.ones((batch_size, 1), device=self.device)
                 fake_targets = torch.zeros((batch_size, 1), device=self.device)
@@ -231,11 +257,35 @@ class GANomalyTrainer:
                 running_g += float(loss_g.item())
                 running_d += float(loss_d.item())
                 num_batches += 1
+                
+                pbar.set_postfix({
+                    "G_loss": f"{loss_g.item():.4f}",
+                    "D_loss": f"{loss_d.item():.4f}"
+                })
 
+            avg_g = running_g / max(num_batches, 1)
+            avg_d = running_d / max(num_batches, 1)
+            
+            epoch_duration_sec = time.time() - epoch_start_time
+            mins = int(epoch_duration_sec // 60)
+            secs = int(epoch_duration_sec % 60)
+            duration_str = f"{mins:02d}:{secs:02d}"
+            
+            it_per_sec = num_batches / epoch_duration_sec if epoch_duration_sec > 0 else 0.0
+            
+            metrics_history.append({
+                "epoch": epoch + 1,
+                "time_duration": duration_str,
+                "total_iterations": num_batches,
+                "iterations_per_sec": round(it_per_sec, 2),
+                "avg_g_loss": avg_g,
+                "avg_d_loss": avg_d
+            })
+            
             print(
-                f"Epoch {epoch + 1}/{self.epochs} - "
-                f"G: {running_g / max(num_batches, 1):.4f} "
-                f"D: {running_d / max(num_batches, 1):.4f}"
+                f"Epoch {epoch + 1}/{self.epochs} Summary - "
+                f"Avg G: {avg_g:.4f} | "
+                f"Avg D: {avg_d:.4f}"
             )
 
         threshold = self._estimate_threshold(generator, val_loader)
@@ -251,6 +301,16 @@ class GANomalyTrainer:
             },
             checkpoint_path,
         )
+        
+        import csv
+        metrics_path = checkpoint_path.with_suffix('.csv')
+        with metrics_path.open("w", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=[
+                "epoch", "time_duration", "total_iterations", "iterations_per_sec", "avg_g_loss", "avg_d_loss"
+            ])
+            writer.writeheader()
+            writer.writerows(metrics_history)
+            
         return TrainingResult(
             checkpoint_path=checkpoint_path,
             threshold=threshold,
@@ -263,7 +323,7 @@ class GANomalyTrainer:
         scores: list[float] = []
         with torch.no_grad():
             for batch in data_loader:
-                batch = batch.to(self.device)
+                batch = batch.to(self.device, non_blocking=True)
                 _, latent, latent_reconstructed = generator(batch)
                 batch_scores = torch.mean((latent - latent_reconstructed) ** 2, dim=(1, 2, 3))
                 scores.extend(batch_scores.detach().cpu().tolist())
