@@ -69,12 +69,14 @@ class TrafficAnomalyPipeline:
         config_path: str | Path,
         max_frames: int | None = None,
         display: bool = True,
+        source_mode: str | None = None,
         source_override: str | None = None,
         skip_frames: int = 1,
     ):
-        self.scene = SceneConfig.load(config_path)
+        self.scene = SceneConfig.load(config_path, source_mode=source_mode)
         if source_override:
             self.scene.video_source = source_override
+            self.scene.video_source_mode = "override"
         self.max_frames = max_frames
         self.display = display
         self.skip_frames = max(1, skip_frames)
@@ -118,6 +120,7 @@ class TrafficAnomalyPipeline:
 
         print(f"Camera: {self.scene.camera_id}")
         print(f"Video source: {self.scene.video_source}")
+        print(f"Video source mode: {self.scene.video_source_mode}")
         print(f"Tracker config: {self.scene.tracker_config}")
         print(f"Run output: {artifacts.root}")
         print(f"Dataset root: {self.scene.dataset_dir}")
@@ -345,6 +348,12 @@ class TrafficAnomalyPipeline:
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Traffic anomaly detection MVP")
     parser.add_argument("--config", default="configs/scene_config.yaml", help="Path to the scene configuration YAML.")
+    parser.add_argument(
+        "--source-mode",
+        choices=["youtube", "local"],
+        default=None,
+        help="Select a named video source from the config. --source still overrides this.",
+    )
     parser.add_argument("--source", default=None, help="Optional override for the configured video source.")
     parser.add_argument("--max-frames", type=int, default=None, help="Stop after N frames.")
     parser.add_argument("--no-display", action="store_true", help="Disable the OpenCV preview window.")

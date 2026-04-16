@@ -9,6 +9,7 @@ def main() -> None:
         config_path=args.config,
         max_frames=args.max_frames,
         display=display,
+        source_mode=args.source_mode,
         source_override=args.source,
         skip_frames=args.skip_frames,
     )

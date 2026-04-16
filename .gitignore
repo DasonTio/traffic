@@ -51,3 +51,4 @@ venv/
 .venv/
 __pycache__/
 anomalies/
+.video/

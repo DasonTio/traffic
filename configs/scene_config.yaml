@@ -1,7 +1,9 @@
 camera_id: tol_fixed_cctv_001
 
 video:
-  source: https://www.youtube.com/watch?v=wWSSUfL2LpE
+  default: youtube
+  youtube: https://www.youtube.com/watch?v=wWSSUfL2LpE
+  local: .video/video.mp4.mp4
   resolution: 360p
   fps: 30.0
 
