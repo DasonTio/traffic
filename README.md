@@ -1,178 +1,289 @@
 # Traffic Anomaly Detection
 
-This project runs YOLO + tracking + rule-based traffic anomaly detection with GANomaly support scoring.
+A real-time traffic anomaly detection system built on YOLOv11 + multi-object tracking + rule-based violation logic, with optional appearance-anomaly scoring via **GANomaly** and **VAE** models.
 
-## Video Source Selection
+---
 
-The scene config now keeps both a YouTube source and a local MP4 source:
+## Overview
 
-- `youtube`: configured in [configs/scene_config.yaml](configs/scene_config.yaml)
-- `local`: currently set to `.video/video.mp4.mp4`
+The pipeline processes a live YouTube CCTV stream (or a local MP4) and detects:
+- **Lane violations** — trucks/buses entering fast lanes
+- **Stopped vehicles** — vehicles halting in or near the emergency lane
+- **Wrong-way driving** — vehicles with heading misaligned to lane direction
 
-The default source mode is also configured in `configs/scene_config.yaml`:
+Detected events are saved under `runs/<timestamp>/` alongside evaluation reports.
+
+---
+
+## Requirements
+
+- Python 3.10+
+- macOS / Linux (Windows works too — replace `/` with `\` in paths)
+
+---
+
+## Quick Start
+
+### 1. Set up the environment
+
+```bash
+python -m venv .venv
+source .venv/bin/activate          # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+```
+
+### 2. Run detection (live YouTube stream)
+
+```bash
+python main.py --batch --source-mode youtube
+```
+
+Run on the local MP4 instead (faster / reproducible):
+
+```bash
+python main.py --batch --source-mode local
+```
+
+Override the source for a single run:
+
+```bash
+python main.py --batch --source "https://www.youtube.com/watch?v=wWSSUfL2LpE"
+```
+
+`--source` overrides `--source-mode`. `--batch` disables the OpenCV preview window.
+
+---
+
+## End-to-End Training & Testing
+
+Follow these steps **in order** to train both appearance-anomaly models and evaluate them.
+
+---
+
+### Step 1 — Approve training sequences
+
+The appearance models train only on sequences marked `approved` in `dataset/sequence_review.csv`.
+Run the helper script to label sequences automatically:
+- Sequences overlapping a GT anomaly window → `rejected` (kept out of training)
+- Everything else → `approved` (clean normal-vehicle crops)
+
+```bash
+python scripts/approve_all_sequences.py
+```
+
+You will see a per-class summary:
+
+```
+Class          Approved   Rejected
+----------------------------------
+Bus                  20          0
+Car                 245          0
+Truck               107          0
+```
+
+Use `--dry-run` to preview changes without writing any file.
+
+---
+
+### Step 2 — Train GANomaly (one checkpoint per vehicle class)
+
+```bash
+python scripts/train_ganomaly.py --group car   --epochs 20
+python scripts/train_ganomaly.py --group bus   --epochs 20
+python scripts/train_ganomaly.py --group truck --epochs 20
+```
+
+Checkpoints are saved to the paths set in `configs/scene_config.yaml`:
+
+| Class | Output path |
+|-------|-------------|
+| car   | `models/ganomaly_car.pt` |
+| bus   | `models/ganomaly_bus.pt` |
+| truck | `models/ganomaly_truck.pt` |
+
+A sibling `.csv` file with per-epoch metrics is saved alongside each checkpoint.
+
+**Optional flags**
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--epochs N` | 10 | Number of training epochs |
+| `--batch-size N` | 32 | Mini-batch size |
+| `--lr F` | 2e-4 | Learning rate |
+| `--workers N` | 4 | DataLoader worker threads (set `0` on Windows) |
+| `--device cpu\|cuda` | auto | Force CPU or GPU |
+| `--output PATH` | from config | Override checkpoint save path |
+
+---
+
+### Step 3 — Train VAE (same class groups)
+
+```bash
+python scripts/train_vae.py --group car   --epochs 20
+python scripts/train_vae.py --group bus   --epochs 20
+python scripts/train_vae.py --group truck --epochs 20
+```
+
+VAE checkpoints go to `models/vae_{car,bus,truck}.pt`.
+
+**Additional VAE flag**
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--lr F` | 1e-3 | Learning rate (higher than GANomaly's default) |
+
+All other flags are the same as GANomaly.
+
+---
+
+### Step 4 — Run inference on the YouTube stream
+
+Collect a fresh run of predicted events:
+
+```bash
+python main.py --batch --source-mode youtube --max-frames 5000
+```
+
+`--max-frames 5000` caps at ≈ 2 min 46 s of 30 fps video — enough to cover multiple GT anomaly windows while keeping the run fast. The run is saved under `runs/<timestamp>/`.
+
+---
+
+### Step 5 — Seed the appearance ground truth
+
+After inference, populate `dataset/appearance_ground_truth.csv`:
+
+```bash
+python scripts/seed_appearance_ground_truth.py
+```
+
+This writes two label classes:
+- `normal` — one representative frame from each approved sequence
+- `appearance_anomaly` — event crop images saved by the pipeline in `runs/*/crops/`
+
+Use `--dry-run` to check counts before writing.
+
+---
+
+### Step 6 — Full evaluation (system + both models)
+
+Run everything in one shot:
+
+```bash
+python scripts/run_full_evaluation.py
+```
+
+This produces a report directory under `reports/<timestamp>_full_evaluation/` containing:
+
+| File | Contents |
+|------|----------|
+| `full_evaluation_report.md` | System Precision / Recall / F1 + GANomaly vs VAE comparison table |
+| `full_evaluation_summary.json` | Machine-readable metrics payload |
+| `ganomaly/ganomaly_report.md` | GANomaly AUROC / AUPRC per class group |
+| `vae/vae_report.md` | VAE AUROC / AUPRC per class group |
+| `comparison_report.md` | Side-by-side model comparison table |
+
+**Useful flags**
+
+| Flag | Description |
+|------|-------------|
+| `--run 20260421_171727` | Evaluate a specific existing run (skips inference) |
+| `--skip-system` | Skip system-level GT evaluation, run appearance only |
+| `--skip-appearance` | Skip appearance model evaluation |
+| `--report-dir PATH` | Override the output directory |
+
+---
+
+### Step 7 — Evaluate a single model (optional)
+
+Score one model against the appearance ground truth:
+
+```bash
+python scripts/test_model.py --mode appearance --appearance-model ganomaly
+python scripts/test_model.py --mode appearance --appearance-model vae
+```
+
+Reports are written under `reports/appearance_test/<timestamp>_<model>/`.
+
+Evaluate system detection only (against `dataset/ground_truth_events.csv`):
+
+```bash
+python scripts/test_model.py --source-mode local
+```
+
+Or skip inference and evaluate an existing run:
+
+```bash
+python scripts/test_model.py --run 20260421_171727
+```
+
+---
+
+## Video Source Configuration
+
+Edit `configs/scene_config.yaml` to change sources or resolution:
 
 ```yaml
 video:
   default: youtube
   youtube: https://www.youtube.com/watch?v=wWSSUfL2LpE
   local: .video/video.mp4.mp4
+  resolution: 360p
+  fps: 30.0
 ```
 
-## Usage
+`--source` on the CLI overrides the config for a single run.
 
-Run with the default source from the config:
+---
 
-```powershell
-python main.py --batch
+## Running the Tests
+
+```bash
+pytest -q
 ```
 
-Run with the configured YouTube source:
+---
 
-```powershell
-python main.py --batch --source-mode youtube
+## Project Layout
+
+```
+traffic/
+├── main.py                        # CLI entry point
+├── configs/
+│   └── scene_config.yaml          # All tuneable parameters
+├── traffic_anomaly/               # Runtime package
+│   ├── pipeline.py                # Main inference orchestrator
+│   ├── ganomaly.py                # GANomaly model + trainer + scorer
+│   ├── vae.py                     # VAE model + trainer + scorer
+│   ├── rules.py                   # Violation detection rules
+│   ├── events.py                  # Event lifecycle management
+│   └── ...
+├── scripts/
+│   ├── approve_all_sequences.py   # GT-aware sequence labeler (Step 1)
+│   ├── train_ganomaly.py          # GANomaly trainer CLI (Step 2)
+│   ├── train_vae.py               # VAE trainer CLI (Step 3)
+│   ├── seed_appearance_ground_truth.py  # Appearance GT builder (Step 5)
+│   ├── run_full_evaluation.py     # Full evaluation orchestrator (Step 6)
+│   ├── test_model.py              # Single-model / system evaluator (Step 7)
+│   └── evaluate_ground_truth.py  # System-level GT evaluation
+├── dataset/
+│   ├── ground_truth_events.csv    # 128 labeled traffic anomaly events
+│   ├── appearance_ground_truth.csv # Crop-level normal/anomaly labels
+│   └── sequence_review.csv        # Approved / rejected training sequences
+├── models/                        # Saved checkpoints (gitignored)
+├── runs/                          # Inference output (gitignored)
+└── tests/                         # pytest unit tests
 ```
 
-Run with the configured local MP4:
+---
 
-```powershell
-python main.py --batch --source-mode local
-```
+## Model Comparison: GANomaly vs VAE
 
-Override with any custom source path or URL:
+| | GANomaly | VAE |
+|---|---|---|
+| **Architecture** | Encoder → Decoder → Encoder (adversarial) | Encoder → Latent (μ, σ) → Decoder |
+| **Anomaly score** | MSE between latent codes | Reconstruction loss + β·KL divergence |
+| **Strengths** | Sharper reconstructions; better fine-grained anomaly sensitivity | Simpler, more stable training; easier to reproduce |
+| **Weaknesses** | Generator/discriminator balance is fragile | Blurrier reconstructions; weaker on texture anomalies |
+| **Best for** | Production, when detection quality matters most | Rapid experimentation and stable baselines |
 
-```powershell
-python main.py --batch --source ".video\\video.mp4.mp4"
-```
-
-`--source` has higher priority than `--source-mode`.
-
-## Notes
-
-- If you rename the local file, update `video.local` in `configs/scene_config.yaml`.
-- For final evaluation runs, prefer the local MP4 so the inference is reproducible and does not depend on the YouTube stream.
-
-## Model Testing
-
-Use the ground-truth annotations to run a full model test in one command:
-
-```powershell
-python scripts/test_model.py --source-mode local --tracker-config configs/ocsort.yaml
-```
-
-This will:
-- run the pipeline in batch mode
-- compare `runs/<run>/events.csv` against `dataset/ground_truth_events.csv`
-- save evaluation files under `runs/<run>/ground_truth_eval/`
-- emit a `PASS` or `FAIL` verdict using precision, recall, and F1 thresholds
-
-To test an existing run without rerunning inference:
-
-```powershell
-python scripts/test_model.py --run 20260421_171727
-```
-
-## Appearance Models: GANomaly and VAE
-
-Use `dataset/appearance_ground_truth.csv` when you want to compare `GANomaly` and `VAE` as appearance-anomaly models. This benchmark is separate from `dataset/ground_truth_events.csv`, which is still the correct test set for the full rule-based traffic pipeline.
-
-### Step 1: Prepare normal training sequences
-
-The trainers only learn from sequences marked `approved` in `dataset/sequence_review.csv`. Review and approve good normal sequences first:
-
-```powershell
-python scripts/review_sequences.py --dataset-dir dataset --sequence-id <SEQ_ID> --status approved
-```
-
-If you already checked the whole file and want a bulk shortcut:
-
-```powershell
-python scripts/review_sequences.py --dataset-dir dataset --approve-all-pending
-```
-
-### Step 2: Build the appearance ground truth
-
-Bootstrap the crop-level labeling sheet:
-
-```powershell
-python scripts/bootstrap_appearance_ground_truth.py
-```
-
-This creates or refreshes `dataset/appearance_ground_truth.csv` with:
-- `normal` crops sampled from approved normal sequences
-- unlabeled event crops from previous `runs/*/events.csv`
-
-Label the `label` column with:
-- `normal`
-- `appearance_anomaly`
-
-### Step 3: Train GANomaly
-
-Train one checkpoint per class group:
-
-```powershell
-python scripts/train_ganomaly.py --group car
-python scripts/train_ganomaly.py --group bus
-python scripts/train_ganomaly.py --group truck
-```
-
-Optional flags:
-- `--epochs`
-- `--batch-size`
-- `--lr`
-- `--device cpu|cuda`
-- `--output <checkpoint_path>`
-
-### Step 4: Train VAE
-
-Train the VAE on the same approved normal-sequence source:
-
-```powershell
-python scripts/train_vae.py --group car
-python scripts/train_vae.py --group bus
-python scripts/train_vae.py --group truck
-```
-
-Use the same optional flags as the GAN trainer when you need to tune training.
-
-### Step 5: Run one model by itself
-
-Evaluate a single appearance model against `dataset/appearance_ground_truth.csv`:
-
-```powershell
-python scripts/test_model.py --mode appearance --appearance-model ganomaly
-python scripts/test_model.py --mode appearance --appearance-model vae
-```
-
-This writes per-model reports under `reports/appearance_test/`.
-
-Important: the live `main.py` pipeline currently uses `GANomaly` for appearance scoring. The `VAE` path is implemented as an offline benchmark baseline, not yet as the default runtime scorer.
-
-### Step 6: Compare GANomaly vs VAE directly
-
-Run both on the same labeled crop set:
-
-```powershell
-python scripts/compare_appearance_models.py
-```
-
-Outputs are written under `reports/appearance_eval/` and include:
-- per-model prediction CSVs
-- per-model markdown reports
-- one combined comparison summary
-
-### Differences, Pros, and Cons
-
-`GANomaly`
-- What it is: an adversarial reconstruction model with latent consistency.
-- Pros: often better at separating subtle visual anomalies; usually sharper reconstructions.
-- Cons: harder to train, more sensitive to checkpoint quality, and less stable than a VAE.
-
-`VAE`
-- What it is: a probabilistic autoencoder trained with reconstruction loss plus KL regularization.
-- Pros: simpler, more stable to train, easier to debug and reproduce.
-- Cons: usually blurrier reconstructions and weaker sensitivity to fine-grained texture anomalies.
-
-Practical guidance:
-- Choose `GANomaly` when detection quality is the priority and you can afford more training instability.
-- Choose `VAE` when you want a cleaner, easier baseline and more predictable experimentation.
-- Keep using `dataset/ground_truth_events.csv` for the full end-to-end traffic-system test.
+The live `main.py` pipeline uses GANomaly for the fused anomaly score. VAE is available as an offline benchmark baseline via `scripts/test_model.py --mode appearance --appearance-model vae`.
