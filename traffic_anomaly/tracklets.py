@@ -34,6 +34,9 @@ class TrackFeature:
     max_recent_speed: float
     speed_drop: float
     ganomaly_score: float
+    raw_class_id: int = -1
+    raw_class_name: str = ""
+    stable_class_score: float = 0.0
 
     def to_record(self) -> dict[str, Any]:
         x1, y1, x2, y2 = self.bbox
@@ -44,6 +47,9 @@ class TrackFeature:
             "track_id": self.track_id,
             "class_name": self.class_name,
             "class_id": self.class_id,
+            "raw_class_name": self.raw_class_name or self.class_name,
+            "raw_class_id": self.raw_class_id if self.raw_class_id >= 0 else self.class_id,
+            "stable_class_score": f"{self.stable_class_score:.4f}",
             "conf": f"{self.conf:.4f}",
             "bbox": f"{x1},{y1},{x2},{y2}",
             "footpoint_px": f"{self.footpoint_px[0]:.2f},{self.footpoint_px[1]:.2f}",
@@ -78,6 +84,9 @@ class TrackState:
     wrong_way_frames: int = 0
     stopped_frames: int = 0
     last_lane_id: str | None = None
+    class_scores: dict[int, float] = field(default_factory=dict)
+    pending_class_id: int | None = None
+    pending_class_frames: int = 0
 
 
 class TrackManager:
@@ -93,6 +102,13 @@ class TrackManager:
         self.ganomaly_window = int(scene.ganomaly_settings.get("aggregation_window", 20))
         self.ganomaly_alpha = float(scene.ganomaly_settings.get("ema_alpha", 0.3))
         self.min_track_age = int(scene.thresholds.get("min_track_age_frames", 15))
+        classification_cfg = scene.raw_config.get("classification", {})
+        self.class_stabilization_enabled = bool(classification_cfg.get("enabled", True))
+        self.class_vote_decay = float(classification_cfg.get("vote_decay", 0.9))
+        self.class_min_conf_weight = float(classification_cfg.get("min_conf_weight", 0.25))
+        self.class_switch_margin = float(classification_cfg.get("switch_margin", 1.1))
+        self.class_min_switch_frames = int(classification_cfg.get("min_switch_frames", 3))
+        self.class_score_floor = float(classification_cfg.get("score_floor", 0.01))
 
     def stale_ids(self, active_ids: set[int]) -> list[int]:
         return [track_id for track_id in list(self.states.keys()) if track_id not in active_ids]
@@ -105,6 +121,54 @@ class TrackManager:
         if state is None:
             return []
         return list(state.trail_px)
+
+    def _stabilize_class(self, state: TrackState, class_id: int, class_name: str, conf: float) -> tuple[int, str, float]:
+        if not self.class_stabilization_enabled:
+            state.class_id = class_id
+            state.class_name = class_name
+            return class_id, class_name, 1.0
+
+        for existing_id in list(state.class_scores.keys()):
+            decayed = state.class_scores[existing_id] * self.class_vote_decay
+            if decayed < self.class_score_floor:
+                del state.class_scores[existing_id]
+            else:
+                state.class_scores[existing_id] = decayed
+
+        observation_weight = max(float(conf), self.class_min_conf_weight)
+        state.class_scores[class_id] = state.class_scores.get(class_id, 0.0) + observation_weight
+
+        if state.class_id not in state.class_scores:
+            state.class_id = class_id
+            state.class_name = class_name
+
+        candidate_id = max(state.class_scores, key=state.class_scores.get)
+        candidate_name = self.scene.coco_names.get(candidate_id, class_name if candidate_id == class_id else "Vehicle")
+        stable_score = state.class_scores.get(state.class_id, 0.0)
+        candidate_score = state.class_scores[candidate_id]
+
+        if candidate_id == state.class_id:
+            state.class_name = candidate_name
+            state.pending_class_id = None
+            state.pending_class_frames = 0
+        elif candidate_score > stable_score * self.class_switch_margin:
+            if state.pending_class_id == candidate_id:
+                state.pending_class_frames += 1
+            else:
+                state.pending_class_id = candidate_id
+                state.pending_class_frames = 1
+            if state.pending_class_frames >= self.class_min_switch_frames:
+                state.class_id = candidate_id
+                state.class_name = candidate_name
+                state.pending_class_id = None
+                state.pending_class_frames = 0
+        else:
+            state.pending_class_id = None
+            state.pending_class_frames = 0
+
+        total_score = sum(state.class_scores.values())
+        stable_ratio = state.class_scores.get(state.class_id, 0.0) / total_score if total_score > 0 else 1.0
+        return state.class_id, state.class_name, float(stable_ratio)
 
     def update(
         self,
@@ -132,10 +196,12 @@ class TrackManager:
                 ganomaly_history=deque(maxlen=self.ganomaly_window),
                 trail_px=deque(maxlen=40),
             )
+            state.class_scores[class_id] = max(float(conf), self.class_min_conf_weight)
             self.states[track_id] = state
 
         state.dwell_frames += 1
         state.trail_px.append((int(footpoint_px[0]), int(footpoint_px[1])))
+        stable_class_id, stable_class_name, stable_class_score = self._stabilize_class(state, class_id, class_name, conf)
 
         raw_speed = 0.0
         movement = np.zeros(2, dtype=np.float32)
@@ -174,7 +240,7 @@ class TrackManager:
 
         # Track total frames seen (dwell_frames now counts total age)
         track_age = state.dwell_frames
-        forbidden_lanes = set(self.scene.class_lane_policy.get(class_name, []))
+        forbidden_lanes = set(self.scene.class_lane_policy.get(stable_class_name, []))
         state.lane_violation_frames = state.lane_violation_frames + 1 if lane_id in forbidden_lanes else 0
 
         motion_floor = self.scene.thresholds.get("motion_floor", 8.0)
@@ -210,8 +276,8 @@ class TrackManager:
             frame_idx=frame_idx,
             timestamp_s=frame_idx / self.fps,
             track_id=track_id,
-            class_id=class_id,
-            class_name=class_name,
+            class_id=stable_class_id,
+            class_name=stable_class_name,
             conf=float(conf),
             bbox=bbox,
             footpoint_px=footpoint_px,
@@ -229,4 +295,7 @@ class TrackManager:
             max_recent_speed=float(max_recent_speed),
             speed_drop=float(speed_drop),
             ganomaly_score=float(aggregated_ganomaly),
+            raw_class_id=class_id,
+            raw_class_name=class_name,
+            stable_class_score=stable_class_score,
         )

@@ -1,0 +1,14 @@
+# BoxMOT-backed OC-SORT settings for this repository.
+tracker_type: ocsort
+det_thresh: 0.4
+min_conf: 0.1
+max_age: 60
+max_obs: 80
+min_hits: 3
+iou_threshold: 0.3
+delta_t: 3
+asso_func: iou
+use_byte: true
+inertia: 0.2
+Q_xy_scaling: 0.01
+Q_s_scaling: 0.0001

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -348,12 +349,26 @@ class GANomalyScorer:
         self.thresholds: dict[str, float] = {}
 
         for class_group, checkpoint_path in checkpoint_paths.items():
-            if not Path(checkpoint_path).exists():
+            checkpoint_path = Path(checkpoint_path)
+            if not checkpoint_path.exists():
                 continue
-            checkpoint = torch.load(checkpoint_path, map_location=self.device)
-            latent_dim = int(checkpoint.get("latent_dim", 128))
-            model = Generator(latent_dim=latent_dim).to(self.device)
-            model.load_state_dict(checkpoint["generator_state_dict"])
+            try:
+                checkpoint = torch.load(checkpoint_path, map_location=self.device)
+                latent_dim = int(checkpoint.get("latent_dim", 128))
+                state_dict = checkpoint.get("generator_state_dict")
+                if not isinstance(state_dict, dict):
+                    raise KeyError("generator_state_dict")
+                model = Generator(latent_dim=latent_dim).to(self.device)
+                model.load_state_dict(state_dict)
+            except Exception as exc:
+                reason = "incompatible or invalid checkpoint format"
+                if not isinstance(exc, (RuntimeError, KeyError, ValueError, TypeError)):
+                    reason = f"{type(exc).__name__}: {exc}"
+                warnings.warn(
+                    f"Skipping GANomaly checkpoint for '{class_group}' at {checkpoint_path}: {reason}",
+                    RuntimeWarning,
+                )
+                continue
             model.eval()
             self.models[class_group] = model
             self.thresholds[class_group] = float(checkpoint.get("threshold", self.default_threshold))

@@ -11,6 +11,7 @@ def main() -> None:
         display=display,
         source_mode=args.source_mode,
         source_override=args.source,
+        tracker_config_override=args.tracker_config,
         skip_frames=args.skip_frames,
     )
     pipeline.run()
@@ -18,4 +19,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

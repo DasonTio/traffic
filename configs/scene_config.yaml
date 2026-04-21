@@ -8,12 +8,20 @@ video:
   fps: 30.0
 
 model:
-  weights: yolo11n.pt
-  confidence: 0.45
+  weights: yolo11m.pt
+  confidence: 0.30
   detect_classes: [2, 5, 7]
 
 tracking:
-  tracker_config: bytetrack.yaml
+  tracker_config: ocsort.yaml
+
+classification:
+  enabled: true
+  vote_decay: 0.9
+  min_conf_weight: 0.25
+  switch_margin: 1.1
+  min_switch_frames: 3
+  score_floor: 0.01
 
 output:
   run_root: runs

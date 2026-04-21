@@ -15,6 +15,7 @@ from .ganomaly import GANomalyScorer
 from .geometry import bottom_center, find_lane, project_point
 from .rules import RuleEngine, build_lane_snapshots
 from .storage import RunArtifacts
+from .tracker_backend import TrackerBackend
 from .tracklets import TrackManager
 from .visualization import draw_hud_panel, draw_scene_overlay, draw_track_box, draw_trail, COLOR_CRITICAL, COLOR_WARNING, COLOR_TRAIL
 
@@ -71,21 +72,83 @@ class TrafficAnomalyPipeline:
         display: bool = True,
         source_mode: str | None = None,
         source_override: str | None = None,
+        tracker_config_override: str | None = None,
         skip_frames: int = 1,
     ):
         self.scene = SceneConfig.load(config_path, source_mode=source_mode)
         if source_override:
             self.scene.video_source = source_override
             self.scene.video_source_mode = "override"
+        if tracker_config_override:
+            self.scene.tracker_config = Path(tracker_config_override).resolve()
         self.max_frames = max_frames
         self.display = display
         self.skip_frames = max(1, skip_frames)
         self.enhancement = self.scene.raw_config.get("enhancement", {})
 
+    def _open_video_capture(self):
+        source = self.scene.video_source
+        try:
+            cap = open_capture(source, self.scene.video_resolution)
+            self._validate_capture(cap, source)
+            return cap
+        except Exception as exc:
+            fallback_source = self.scene.video_sources.get("local")
+            if (
+                self.scene.video_source_mode != "local"
+                and fallback_source
+                and fallback_source != source
+                and Path(fallback_source).exists()
+            ):
+                print(
+                    f"Warning: failed to open {self.scene.video_source_mode} source "
+                    f"'{source}': {exc}"
+                )
+                print(f"Falling back to local video: {fallback_source}")
+                cap = open_capture(fallback_source, self.scene.video_resolution)
+                self._validate_capture(cap, fallback_source)
+                self.scene.video_source = fallback_source
+                self.scene.video_source_mode = "local-fallback"
+                return cap
+            raise RuntimeError(self._format_source_error(source, exc)) from exc
+
+    @staticmethod
+    def _validate_capture(cap, source: str) -> None:
+        if cap is not None and cap.isOpened():
+            return
+        if source.startswith("http://") or source.startswith("https://"):
+            raise RuntimeError(f"Could not open remote video source: {source}")
+        source_path = Path(source)
+        if not source_path.exists():
+            raise FileNotFoundError(f"Local video source not found: {source_path}")
+        raise RuntimeError(f"Could not open video file: {source_path}")
+
+    @staticmethod
+    def _format_source_error(source: str, exc: Exception) -> str:
+        if source.startswith("http://") or source.startswith("https://"):
+            if "youtube" in source:
+                return (
+                    f"Could not open YouTube source '{source}'. This environment may be offline "
+                    "or YouTube download failed. Run with '--source-mode local' after placing a "
+                    "video at the configured local path, or pass '--source /absolute/path/to/video.mp4'."
+                )
+            return (
+                f"Could not open remote video source '{source}' ({exc}). "
+                "Pass '--source /absolute/path/to/video.mp4' to use a local file instead."
+            )
+        source_path = Path(source)
+        if not source_path.exists():
+            return (
+                f"Local video source not found: {source_path}. Update 'video.local' in "
+                "configs/scene_config.yaml or pass '--source /absolute/path/to/video.mp4'."
+            )
+        return (
+            f"Could not open video file '{source_path}' ({exc}). "
+            "Make sure the file is readable and encoded in a format OpenCV can open."
+        )
+
     def run(self) -> None:
-        cap = open_capture(self.scene.video_source, self.scene.video_resolution)
-        if not cap.isOpened():
-            raise RuntimeError(f"Could not open video source: {self.scene.video_source}")
+        cap = self._open_video_capture()
 
         reported_fps = cap.get(cv2.CAP_PROP_FPS)
         video_fps = reported_fps if reported_fps and reported_fps > 1.0 else self.scene.source_fps
@@ -108,6 +171,13 @@ class TrafficAnomalyPipeline:
         )
 
         model = YOLO(str(self.scene.yolo_weights))
+        tracker_backend = TrackerBackend(
+            model=model,
+            tracker_config=self.scene.tracker_config,
+            detect_classes=self.scene.detect_classes,
+            default_confidence=self.scene.confidence,
+            fps=video_fps,
+        )
         sequence_candidates: dict[int, dict] = {}
         anomalous_track_ids: set[int] = set()
 
@@ -122,6 +192,12 @@ class TrafficAnomalyPipeline:
         print(f"Video source: {self.scene.video_source}")
         print(f"Video source mode: {self.scene.video_source_mode}")
         print(f"Tracker config: {self.scene.tracker_config}")
+        print(f"Tracker backend: {tracker_backend.describe()}")
+        if tracker_backend.detector_confidence != self.scene.confidence:
+            print(
+                f"Detector confidence: {self.scene.confidence:.2f} "
+                f"(tracker ingest threshold {tracker_backend.detector_confidence:.2f})"
+            )
         print(f"Run output: {artifacts.root}")
         print(f"Dataset root: {self.scene.dataset_dir}")
         if self.skip_frames > 1:
@@ -167,55 +243,40 @@ class TrafficAnomalyPipeline:
             display_fps = 0.8 * display_fps + 0.2 * (1.0 / max(now - prev_time, 1e-6))
             prev_time = now
 
-            results = model.track(
-                frame,
-                persist=True,
-                classes=self.scene.detect_classes,
-                conf=self.scene.confidence,
-                tracker=str(self.scene.tracker_config),
-                verbose=False,
-            )
-
             display_frame = frame.copy()
             draw_scene_overlay(display_frame, self.scene.lanes)
 
+            tracked_detections = tracker_backend.track(frame)
             detections: list[tuple] = []
             active_ids: set[int] = set()
-            if results and results[0].boxes is not None and results[0].boxes.id is not None:
-                boxes = results[0].boxes.xyxy.cpu().numpy()
-                track_ids = results[0].boxes.id.cpu().numpy()
-                class_ids = results[0].boxes.cls.cpu().numpy()
-                confs = results[0].boxes.conf.cpu().numpy()
-
-                for box, track_id, class_id, conf in zip(boxes, track_ids, class_ids, confs):
-                    if float(conf) < self.scene.confidence:
-                        continue
-                    track_id = int(track_id)
-                    class_id = int(class_id)
-                    bbox = tuple(int(value) for value in box)
-                    class_name = self.scene.coco_names.get(class_id, "Vehicle")
-                    foot_px = bottom_center(bbox)
-                    lane = find_lane(foot_px, self.scene.lanes)
-                    lane_id = lane.id if lane else None
-                    lane_category = lane.category if lane else None
-                    foot_bev = project_point(self.scene.homography, foot_px)
-                    crop = extract_crop(frame, bbox)
-                    ganomaly_score = ganomaly.score_crop(crop, class_name)
-                    feature = track_manager.update(
-                        frame_idx=frame_idx,
-                        track_id=track_id,
-                        class_id=class_id,
-                        class_name=class_name,
-                        conf=float(conf),
-                        bbox=bbox,
-                        footpoint_px=foot_px,
-                        footpoint_bev=foot_bev,
-                        lane_id=lane_id,
-                        lane_category=lane_category,
-                        ganomaly_score=ganomaly_score,
-                    )
-                    detections.append((feature, crop, bbox))
-                    active_ids.add(track_id)
+            for tracked in tracked_detections:
+                bbox = tracked.bbox
+                track_id = tracked.track_id
+                class_id = tracked.class_id
+                conf = tracked.conf
+                class_name = self.scene.coco_names.get(class_id, "Vehicle")
+                foot_px = bottom_center(bbox)
+                lane = find_lane(foot_px, self.scene.lanes)
+                lane_id = lane.id if lane else None
+                lane_category = lane.category if lane else None
+                foot_bev = project_point(self.scene.homography, foot_px)
+                crop = extract_crop(frame, bbox)
+                ganomaly_score = ganomaly.score_crop(crop, class_name)
+                feature = track_manager.update(
+                    frame_idx=frame_idx,
+                    track_id=track_id,
+                    class_id=class_id,
+                    class_name=class_name,
+                    conf=conf,
+                    bbox=bbox,
+                    footpoint_px=foot_px,
+                    footpoint_bev=foot_bev,
+                    lane_id=lane_id,
+                    lane_category=lane_category,
+                    ganomaly_score=ganomaly_score,
+                )
+                detections.append((feature, crop, bbox))
+                active_ids.add(track_id)
 
             lane_snapshots = build_lane_snapshots([feature for feature, _, _ in detections], self.scene)
             current_event_keys: set[tuple[int, str]] = set()
@@ -355,9 +416,13 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Select a named video source from the config. --source still overrides this.",
     )
     parser.add_argument("--source", default=None, help="Optional override for the configured video source.")
+    parser.add_argument(
+        "--tracker-config",
+        default=None,
+        help="Optional override for the tracker YAML, e.g. configs/bytetrack.yaml or configs/ocsort.yaml.",
+    )
     parser.add_argument("--max-frames", type=int, default=None, help="Stop after N frames.")
     parser.add_argument("--no-display", action="store_true", help="Disable the OpenCV preview window.")
     parser.add_argument("--batch", action="store_true", help="Batch mode: disable display, show progress bar.")
     parser.add_argument("--skip-frames", type=int, default=1, help="Process every Nth frame (default: 1 = all frames).")
     return parser
-
