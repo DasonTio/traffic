@@ -65,7 +65,8 @@ def approved_frame_paths(dataset_dir: Path, class_group: str) -> list[Path]:
                 continue
             if class_group_for_name(class_name) != class_group:
                 continue
-            sequence_path = Path(row["sequence_path"])
+            seq_dir_name = Path(row["sequence_path"]).name
+            sequence_path = dataset_dir / "sequences" / seq_dir_name
             frame_paths.extend(sorted(sequence_path.glob("*.jpg")))
     return frame_paths
 
