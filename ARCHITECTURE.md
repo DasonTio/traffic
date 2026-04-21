@@ -632,16 +632,14 @@ GANomaly is used as an appearance anomaly model on vehicle crops.
 
 ### Class Groups
 
-The code groups classes into:
+The appearance models now keep separate groups for:
 
 - `car`
-- `truck_bus`
+- `bus`
+- `truck`
 
-This is a practical compromise:
-
-- smaller models
-- more class-specific normality modeling
-- easier training data management
+This gives cleaner benchmarking and avoids teaching one checkpoint that bus and
+truck are visually interchangeable.
 
 ### Crop Preprocessing
 
@@ -819,7 +817,8 @@ The current YAML expresses:
   - cars have no forbidden lanes configured
 - GANomaly checkpoints:
   - `models/ganomaly_car.pt`
-  - `models/ganomaly_truck_bus.pt`
+  - `models/ganomaly_bus.pt`
+  - `models/ganomaly_truck.pt`
 
 Important runtime note:
 
@@ -827,8 +826,8 @@ Important runtime note:
 - if a checkpoint is missing, that class group silently scores `0.0`
 - in the current workspace, `models/ganomaly_car.pt` exists, so car
   appearance scoring is available
-- if `models/ganomaly_truck_bus.pt` is missing, bus and truck appearance
-  scoring is inactive until that checkpoint is added
+- bus and truck appearance scoring stay inactive until their dedicated
+  checkpoints are trained and added
 
 ## Important Caveats In The Current Branch
 

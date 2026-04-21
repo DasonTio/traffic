@@ -119,7 +119,18 @@ ganomaly:
   default_threshold: 0.02
   checkpoints:
     car: models/ganomaly_car.pt
-    truck_bus: models/ganomaly_truck_bus.pt
+    bus: models/ganomaly_bus.pt
+    truck: models/ganomaly_truck.pt
+
+vae:
+  image_size: 64
+  latent_dim: 96
+  beta: 1.0
+  default_threshold: 0.02
+  checkpoints:
+    car: models/vae_car.pt
+    bus: models/vae_bus.pt
+    truck: models/vae_truck.pt
 
 thresholds:
   fps_fallback: 30.0

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 import time
 from pathlib import Path
@@ -147,7 +148,7 @@ class TrafficAnomalyPipeline:
             "Make sure the file is readable and encoded in a format OpenCV can open."
         )
 
-    def run(self) -> None:
+    def run(self) -> Path:
         cap = self._open_video_capture()
 
         reported_fps = cap.get(cv2.CAP_PROP_FPS)
@@ -187,6 +188,9 @@ class TrafficAnomalyPipeline:
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         batch_mode = not self.display
         enhance_enabled = bool(self.enhancement.get("enabled", False))
+        processed_frame_count = 0
+        processed_frame_min: int | None = None
+        processed_frame_max: int | None = None
 
         print(f"Camera: {self.scene.camera_id}")
         print(f"Video source: {self.scene.video_source}")
@@ -221,6 +225,10 @@ class TrafficAnomalyPipeline:
             # Skip frames for faster batch processing
             if self.skip_frames > 1 and (frame_idx % self.skip_frames) != 0:
                 continue
+            processed_frame_count += 1
+            if processed_frame_min is None:
+                processed_frame_min = frame_idx
+            processed_frame_max = frame_idx
 
             # Progress reporting for batch mode
             if batch_mode and total_frames > 0 and frame_idx % 500 == 0:
@@ -364,6 +372,20 @@ class TrafficAnomalyPipeline:
         print(f"Tracklet log: {artifacts.root / 'tracklets.csv'}")
         print(f"Event log: {artifacts.root / 'events.csv'}")
         print(f"Normal sequence log: {artifacts.root / 'normal_sequences.csv'}")
+        run_metadata = {
+            "camera_id": self.scene.camera_id,
+            "video_source": self.scene.video_source,
+            "video_source_mode": self.scene.video_source_mode,
+            "video_frame_count": total_frames,
+            "processed_frame_count": processed_frame_count,
+            "processed_frame_min": processed_frame_min,
+            "processed_frame_max": processed_frame_max,
+            "skip_frames": self.skip_frames,
+            "tracker_config": str(self.scene.tracker_config),
+            "display": self.display,
+        }
+        (artifacts.root / "run_metadata.json").write_text(json.dumps(run_metadata, indent=2), encoding="utf-8")
+        return artifacts.root
 
     @staticmethod
     def _severity_rank(value: str) -> int:

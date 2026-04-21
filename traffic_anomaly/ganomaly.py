@@ -12,39 +12,12 @@ from torch import nn
 from torch.utils.data import DataLoader, Dataset, random_split
 from tqdm import tqdm
 
-
-def class_group_for_name(class_name: str) -> str:
-    return "car" if class_name.lower() == "car" else "truck_bus"
-
-
-def preprocess_crop(crop: np.ndarray, image_size: int) -> torch.Tensor:
-    resized = cv2.resize(crop, (image_size, image_size), interpolation=cv2.INTER_LINEAR)
-    rgb = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB)
-    array = rgb.astype(np.float32) / 127.5 - 1.0
-    array = np.transpose(array, (2, 0, 1))
-    return torch.from_numpy(array)
-
-
-def _load_review_rows(dataset_dir: Path) -> list[dict[str, str]]:
-    review_path = dataset_dir / "sequence_review.csv"
-    if not review_path.exists():
-        return []
-    with review_path.open("r", newline="", encoding="utf-8") as handle:
-        return list(csv.DictReader(handle))
-
-
-def approved_frame_paths(dataset_dir: Path, class_group: str) -> list[Path]:
-    frames: list[Path] = []
-    for row in _load_review_rows(dataset_dir):
-        status = row.get("review_status", "").lower()
-        class_name = row.get("class_name", "Unknown")
-        if status not in {"approved", "usable", "yes", "true"}:
-            continue
-        if class_group_for_name(class_name) != class_group:
-            continue
-        sequence_path = Path(row["sequence_path"])
-        frames.extend(sorted(sequence_path.glob("*.jpg")))
-    return frames
+from traffic_anomaly.appearance import (
+    AppearanceScore,
+    approved_frame_paths,
+    class_group_for_name,
+    preprocess_crop,
+)
 
 
 class SequenceFrameDataset(Dataset):
@@ -378,15 +351,39 @@ class GANomalyScorer:
         return bool(self.models)
 
     def score_crop(self, crop: np.ndarray, class_name: str) -> float:
-        if crop is None or crop.size == 0:
-            return 0.0
+        return self.score_crop_details(crop, class_name).normalized_score
+
+    def score_crop_details(self, crop: np.ndarray, class_name: str) -> AppearanceScore:
         class_group = class_group_for_name(class_name)
+        threshold = max(self.thresholds.get(class_group, self.default_threshold), 1e-6)
+        if crop is None or crop.size == 0:
+            return AppearanceScore(
+                model_name="ganomaly",
+                class_name=class_name,
+                class_group=class_group,
+                raw_score=0.0,
+                threshold=threshold,
+                normalized_score=0.0,
+            )
         model = self.models.get(class_group)
         if model is None:
-            return 0.0
+            return AppearanceScore(
+                model_name="ganomaly",
+                class_name=class_name,
+                class_group=class_group,
+                raw_score=0.0,
+                threshold=threshold,
+                normalized_score=0.0,
+            )
         tensor = preprocess_crop(crop, self.image_size).unsqueeze(0).to(self.device)
         with torch.no_grad():
             _, latent, latent_reconstructed = model(tensor)
             raw_score = torch.mean((latent - latent_reconstructed) ** 2).item()
-        threshold = max(self.thresholds.get(class_group, self.default_threshold), 1e-6)
-        return float(raw_score / threshold)
+        return AppearanceScore(
+            model_name="ganomaly",
+            class_name=class_name,
+            class_group=class_group,
+            raw_score=float(raw_score),
+            threshold=threshold,
+            normalized_score=float(raw_score / threshold),
+        )

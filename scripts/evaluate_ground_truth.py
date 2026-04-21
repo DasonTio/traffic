@@ -31,6 +31,23 @@ class EventSpan:
     raw: dict[str, str]
 
 
+@dataclass(frozen=True)
+class EvaluationSummary:
+    run_dir: Path
+    gt_path: Path
+    events_path: Path
+    total_gt: int
+    total_pred: int
+    matches: list[dict[str, object]]
+    false_negatives: list[EventSpan]
+    false_positives: list[EventSpan]
+    precision: float
+    recall: float
+    f1: float
+    lane_agreement: float
+    class_agreement: float
+
+
 def find_latest_run(runs_root: Path) -> Path | None:
     if not runs_root.exists():
         return None
@@ -261,6 +278,128 @@ def build_report(
     return "\n".join(lines)
 
 
+def _compute_metrics(
+    matches: list[dict[str, object]],
+    false_negatives: list[EventSpan],
+    false_positives: list[EventSpan],
+) -> tuple[float, float, float, float, float]:
+    tp = len(matches)
+    fn = len(false_negatives)
+    fp = len(false_positives)
+    precision = tp / (tp + fp) if (tp + fp) else 0.0
+    recall = tp / (tp + fn) if (tp + fn) else 0.0
+    f1 = 2 * precision * recall / (precision + recall) if (precision + recall) else 0.0
+    lane_ok = sum(1 for item in matches if item["lane_match"] == "yes")
+    class_ok = sum(1 for item in matches if item["class_match"] == "yes")
+    lane_agreement = lane_ok / tp if tp else 0.0
+    class_agreement = class_ok / tp if tp else 0.0
+    return precision, recall, f1, lane_agreement, class_agreement
+
+
+def evaluate_run(
+    run_dir: Path,
+    gt_path: Path,
+    *,
+    min_iou: float = 0.10,
+    min_gt_coverage: float = 0.30,
+    require_lane: bool = False,
+    frame_start: int | None = None,
+    frame_end: int | None = None,
+) -> EvaluationSummary:
+    run_dir = run_dir.resolve()
+    gt_path = gt_path.resolve()
+    events_path = run_dir / "events.csv"
+    if not gt_path.exists():
+        raise FileNotFoundError(f"Ground truth not found: {gt_path}")
+    if not events_path.exists():
+        raise FileNotFoundError(f"Predicted events not found: {events_path}")
+
+    gt_events = [event for event in load_gt_events(gt_path) if within_window(event, frame_start, frame_end)]
+    pred_events = [event for event in load_pred_events(events_path) if within_window(event, frame_start, frame_end)]
+    matches, false_negatives, false_positives = match_events(
+        gt_events=gt_events,
+        pred_events=pred_events,
+        min_iou=min_iou,
+        min_gt_coverage=min_gt_coverage,
+        require_lane=require_lane,
+    )
+    precision, recall, f1, lane_agreement, class_agreement = _compute_metrics(
+        matches,
+        false_negatives,
+        false_positives,
+    )
+    return EvaluationSummary(
+        run_dir=run_dir,
+        gt_path=gt_path,
+        events_path=events_path,
+        total_gt=len(gt_events),
+        total_pred=len(pred_events),
+        matches=matches,
+        false_negatives=false_negatives,
+        false_positives=false_positives,
+        precision=precision,
+        recall=recall,
+        f1=f1,
+        lane_agreement=lane_agreement,
+        class_agreement=class_agreement,
+    )
+
+
+def write_evaluation_outputs(summary: EvaluationSummary) -> Path:
+    eval_dir = summary.run_dir / "ground_truth_eval"
+    save_csv(
+        eval_dir / "matched_events.csv",
+        [
+            "gt_event_id", "pred_event_id", "anomaly_type", "gt_start", "gt_end", "pred_start", "pred_end",
+            "iou", "gt_coverage", "pred_coverage", "lane_match", "class_match", "gt_lane", "pred_lane", "gt_class", "pred_class",
+        ],
+        summary.matches,
+    )
+    save_csv(
+        eval_dir / "false_negatives.csv",
+        ["event_id", "start_frame", "end_frame", "anomaly_type", "class_name", "lane_id"],
+        [
+            {
+                "event_id": event.event_id,
+                "start_frame": event.start_frame,
+                "end_frame": event.end_frame,
+                "anomaly_type": event.anomaly_type,
+                "class_name": event.class_name,
+                "lane_id": event.lane_id,
+            }
+            for event in summary.false_negatives
+        ],
+    )
+    save_csv(
+        eval_dir / "false_positives.csv",
+        ["event_id", "start_frame", "end_frame", "anomaly_type", "class_name", "lane_id"],
+        [
+            {
+                "event_id": event.event_id,
+                "start_frame": event.start_frame,
+                "end_frame": event.end_frame,
+                "anomaly_type": event.anomaly_type,
+                "class_name": event.class_name,
+                "lane_id": event.lane_id,
+            }
+            for event in summary.false_positives
+        ],
+    )
+
+    report = build_report(
+        summary.run_dir,
+        summary.gt_path,
+        summary.total_gt,
+        summary.total_pred,
+        summary.matches,
+        summary.false_negatives,
+        summary.false_positives,
+    )
+    report_path = eval_dir / "ground_truth_report.md"
+    report_path.write_text(report, encoding="utf-8")
+    return eval_dir
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Evaluate prediction events against ground truth.")
     parser.add_argument("--run", default=None, help="Run directory name under runs/.")
@@ -285,38 +424,35 @@ def main() -> None:
             sys.exit(1)
         run_dir = latest.resolve()
 
-    gt_path = Path(args.gt).resolve()
-    events_path = run_dir / "events.csv"
-    if not gt_path.exists():
-        print(f"Ground truth not found: {gt_path}")
+    try:
+        summary = evaluate_run(
+            run_dir=run_dir,
+            gt_path=Path(args.gt),
+            min_iou=args.min_iou,
+            min_gt_coverage=args.min_gt_coverage,
+            require_lane=args.require_lane,
+            frame_start=args.frame_start,
+            frame_end=args.frame_end,
+        )
+    except FileNotFoundError as exc:
+        print(str(exc))
         sys.exit(1)
-    if not events_path.exists():
-        print(f"Predicted events not found: {events_path}")
-        sys.exit(1)
 
-    gt_events = [event for event in load_gt_events(gt_path) if within_window(event, args.frame_start, args.frame_end)]
-    pred_events = [event for event in load_pred_events(events_path) if within_window(event, args.frame_start, args.frame_end)]
-
-    matches, false_negatives, false_positives = match_events(
-        gt_events=gt_events,
-        pred_events=pred_events,
-        min_iou=args.min_iou,
-        min_gt_coverage=args.min_gt_coverage,
-        require_lane=args.require_lane,
-    )
-
+    matches = summary.matches
+    false_negatives = summary.false_negatives
+    false_positives = summary.false_positives
     tp = len(matches)
     fn = len(false_negatives)
     fp = len(false_positives)
-    precision = tp / (tp + fp) if (tp + fp) else 0.0
-    recall = tp / (tp + fn) if (tp + fn) else 0.0
-    f1 = 2 * precision * recall / (precision + recall) if (precision + recall) else 0.0
+    precision = summary.precision
+    recall = summary.recall
+    f1 = summary.f1
 
     print(f"\n{'=' * 68}")
-    print(f" Ground Truth Evaluation - {run_dir.name}")
+    print(f" Ground Truth Evaluation - {summary.run_dir.name}")
     print(f"{'=' * 68}")
-    print(f"Ground truth: {gt_path}")
-    print(f"Predictions:  {events_path}")
+    print(f"Ground truth: {summary.gt_path}")
+    print(f"Predictions:  {summary.events_path}")
     if args.frame_start is not None or args.frame_end is not None:
         print(f"Window:       {args.frame_start or '-inf'} to {args.frame_end or 'inf'}")
     print(f"Match rule:   anomaly_type + IoU>={args.min_iou:.2f} + GT coverage>={args.min_gt_coverage:.2f}")
@@ -326,8 +462,8 @@ def main() -> None:
         "Overall",
         ["Metric", "Value"],
         [
-            ["GT events", str(len(gt_events))],
-            ["Pred events", str(len(pred_events))],
+            ["GT events", str(summary.total_gt)],
+            ["Pred events", str(summary.total_pred)],
             ["TP", str(tp)],
             ["FN", str(fn)],
             ["FP", str(fp)],
@@ -337,7 +473,7 @@ def main() -> None:
         ],
     )
 
-    gt_counter = Counter(event.anomaly_type for event in gt_events)
+    gt_counter = Counter(event.anomaly_type for event in load_gt_events(summary.gt_path) if within_window(event, args.frame_start, args.frame_end))
     tp_counter = Counter(str(item["anomaly_type"]) for item in matches)
     fn_counter = Counter(event.anomaly_type for event in false_negatives)
     type_rows = []
@@ -349,55 +485,13 @@ def main() -> None:
     lane_ok = sum(1 for item in matches if item["lane_match"] == "yes")
     class_ok = sum(1 for item in matches if item["class_match"] == "yes")
     match_rows = [
-        ["Lane agreement", f"{lane_ok}/{tp}", f"{(lane_ok / tp * 100) if tp else 0.0:.1f}%"],
-        ["Class agreement", f"{class_ok}/{tp}", f"{(class_ok / tp * 100) if tp else 0.0:.1f}%"],
+        ["Lane agreement", f"{lane_ok}/{tp}", f"{summary.lane_agreement * 100:.1f}%"],
+        ["Class agreement", f"{class_ok}/{tp}", f"{summary.class_agreement * 100:.1f}%"],
     ]
     print_table("Matched Event Quality", ["Metric", "Count", "Rate"], match_rows)
 
-    eval_dir = run_dir / "ground_truth_eval"
-    save_csv(
-        eval_dir / "matched_events.csv",
-        [
-            "gt_event_id", "pred_event_id", "anomaly_type", "gt_start", "gt_end", "pred_start", "pred_end",
-            "iou", "gt_coverage", "pred_coverage", "lane_match", "class_match", "gt_lane", "pred_lane", "gt_class", "pred_class",
-        ],
-        matches,
-    )
-    save_csv(
-        eval_dir / "false_negatives.csv",
-        ["event_id", "start_frame", "end_frame", "anomaly_type", "class_name", "lane_id"],
-        [
-            {
-                "event_id": event.event_id,
-                "start_frame": event.start_frame,
-                "end_frame": event.end_frame,
-                "anomaly_type": event.anomaly_type,
-                "class_name": event.class_name,
-                "lane_id": event.lane_id,
-            }
-            for event in false_negatives
-        ],
-    )
-    save_csv(
-        eval_dir / "false_positives.csv",
-        ["event_id", "start_frame", "end_frame", "anomaly_type", "class_name", "lane_id"],
-        [
-            {
-                "event_id": event.event_id,
-                "start_frame": event.start_frame,
-                "end_frame": event.end_frame,
-                "anomaly_type": event.anomaly_type,
-                "class_name": event.class_name,
-                "lane_id": event.lane_id,
-            }
-            for event in false_positives
-        ],
-    )
-
-    report = build_report(run_dir, gt_path, len(gt_events), len(pred_events), matches, false_negatives, false_positives)
-    report_path = eval_dir / "ground_truth_report.md"
-    report_path.write_text(report, encoding="utf-8")
-    print(f"\nSaved report to: {report_path}")
+    eval_dir = write_evaluation_outputs(summary)
+    print(f"\nSaved report to: {eval_dir / 'ground_truth_report.md'}")
 
 
 if __name__ == "__main__":

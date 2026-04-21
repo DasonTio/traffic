@@ -70,6 +70,8 @@ class SceneConfig:
     thresholds: dict[str, float]
     ganomaly_settings: dict[str, Any]
     ganomaly_checkpoints: dict[str, Path]
+    vae_settings: dict[str, Any]
+    vae_checkpoints: dict[str, Path]
     coco_names: dict[int, str]
     raw_config: dict
 
@@ -85,6 +87,7 @@ class SceneConfig:
         tracking_cfg = raw.get("tracking", {})
         output_cfg = raw.get("output", {})
         ganomaly_cfg = raw.get("ganomaly", {})
+        vae_cfg = raw.get("vae", {})
 
         src_points = np.asarray(raw["homography"]["src_points"], dtype=np.float32)
         dst_points = np.asarray(raw["homography"]["dst_points"], dtype=np.float32)
@@ -110,6 +113,10 @@ class SceneConfig:
         checkpoints = {
             name: _resolve_path(base_dir, value, prefer_parent=True)
             for name, value in ganomaly_cfg.get("checkpoints", {}).items()
+        }
+        vae_checkpoints = {
+            name: _resolve_path(base_dir, value, prefer_parent=True)
+            for name, value in vae_cfg.get("checkpoints", {}).items()
         }
         video_sources = cls._load_video_sources(base_dir, video_cfg)
         configured_mode = str(video_cfg.get("default", "")).strip()
@@ -154,6 +161,8 @@ class SceneConfig:
             thresholds={key: float(value) for key, value in raw.get("thresholds", {}).items()},
             ganomaly_settings={key: value for key, value in ganomaly_cfg.items() if key != "checkpoints"},
             ganomaly_checkpoints=checkpoints,
+            vae_settings={key: value for key, value in vae_cfg.items() if key != "checkpoints"},
+            vae_checkpoints=vae_checkpoints,
             coco_names={int(key): value for key, value in raw.get("coco_names", COCO_NAMES).items()},
             raw_config=raw,
         )

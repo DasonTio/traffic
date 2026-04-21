@@ -11,6 +11,10 @@ def test_scene_config_loads_local_bytetrack():
     assert scene.video_source_mode == "youtube"
     assert "youtube" in scene.video_sources
     assert "local" in scene.video_sources
+    assert scene.vae_settings["image_size"] == 64
+    assert scene.vae_checkpoints["car"].name == "vae_car.pt"
+    assert scene.vae_checkpoints["bus"].name == "vae_bus.pt"
+    assert scene.ganomaly_checkpoints["truck"].name == "ganomaly_truck.pt"
 
 
 def test_scene_config_can_select_local_video_source():

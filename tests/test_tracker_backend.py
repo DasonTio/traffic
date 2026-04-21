@@ -34,6 +34,15 @@ def test_load_bytetrack_spec_uses_low_score_confidence():
     assert spec.detector_confidence == 0.1
 
 
+def test_load_ocsort_spec_uses_stable_id_profile():
+    spec = load_tracker_spec("configs/ocsort.yaml", default_confidence=0.30)
+    assert spec.tracker_type == "ocsort"
+    assert spec.detector_confidence == 0.05
+    assert spec.settings["det_thresh"] == 0.3
+    assert spec.settings["max_age"] == 30
+    assert spec.settings["min_hits"] == 2
+
+
 def test_tracker_backend_tracks_with_bytetrack():
     boxes = DummyBoxes([[10, 10, 30, 30]], [0.9], [7])
     model = DummyModel(boxes)
@@ -66,7 +75,7 @@ def test_tracker_backend_tracks_with_ocsort():
 
     tracks = backend.track(np.zeros((100, 100, 3), dtype=np.uint8))
 
-    assert model.last_conf == 0.1
+    assert model.last_conf == 0.05
     assert len(tracks) == 1
     assert tracks[0].track_id == 1
     assert tracks[0].class_id == 7
