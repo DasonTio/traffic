@@ -1,0 +1,90 @@
+{
+  "generated_at": "2026-04-22T02:32:32",
+  "system": {
+    "run_dir": "D:\\school\\uni\\sem 6\\cv\\traffic\\runs\\20260422_022848",
+    "gt_events": 127,
+    "pred_events": 6,
+    "true_positives": 0,
+    "false_negatives": 127,
+    "false_positives": 6,
+    "precision": 0.0,
+    "recall": 0.0,
+    "f1": 0.0,
+    "lane_agreement": 0.0,
+    "class_agreement": 0.0
+  },
+  "ganomaly": {
+    "model": "ganomaly",
+    "samples": 600,
+    "positives": 300,
+    "negatives": 300,
+    "true_positives": 226,
+    "false_positives": 7,
+    "false_negatives": 74,
+    "precision": 0.969957,
+    "recall": 0.753333,
+    "f1": 0.84803,
+    "auroc": 0.904656,
+    "auprc": 0.935674,
+    "per_group": {
+      "truck": {
+        "precision": 0.969231,
+        "recall": 0.868966,
+        "f1": 0.916364,
+        "auroc": 0.972303,
+        "auprc": 0.980387
+      },
+      "car": {
+        "precision": 0.985915,
+        "recall": 0.608696,
+        "f1": 0.752688,
+        "auroc": 0.801251,
+        "auprc": 0.8477
+      },
+      "bus": {
+        "precision": 0.9375,
+        "recall": 0.75,
+        "f1": 0.833333,
+        "auroc": 0.981757,
+        "auprc": 0.98262
+      }
+    }
+  },
+  "vae": {
+    "model": "vae",
+    "samples": 600,
+    "positives": 300,
+    "negatives": 300,
+    "true_positives": 156,
+    "false_positives": 12,
+    "false_negatives": 144,
+    "precision": 0.928571,
+    "recall": 0.52,
+    "f1": 0.666667,
+    "auroc": 0.803367,
+    "auprc": 0.845693,
+    "per_group": {
+      "truck": {
+        "precision": 0.927711,
+        "recall": 0.531034,
+        "f1": 0.675439,
+        "auroc": 0.814961,
+        "auprc": 0.850803
+      },
+      "car": {
+        "precision": 0.948276,
+        "recall": 0.478261,
+        "f1": 0.635838,
+        "auroc": 0.734689,
+        "auprc": 0.799583
+      },
+      "bus": {
+        "precision": 0.888889,
+        "recall": 0.6,
+        "f1": 0.716418,
+        "auroc": 0.942568,
+        "auprc": 0.942523
+      }
+    }
+  }
+}

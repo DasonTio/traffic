@@ -75,6 +75,7 @@ class TrafficAnomalyPipeline:
         source_override: str | None = None,
         tracker_config_override: str | None = None,
         skip_frames: int = 1,
+        device: str | None = None,
     ):
         self.scene = SceneConfig.load(config_path, source_mode=source_mode)
         if source_override:
@@ -86,6 +87,7 @@ class TrafficAnomalyPipeline:
         self.display = display
         self.skip_frames = max(1, skip_frames)
         self.enhancement = self.scene.raw_config.get("enhancement", {})
+        self.device = device
 
     def _open_video_capture(self):
         source = self.scene.video_source
@@ -178,6 +180,7 @@ class TrafficAnomalyPipeline:
             detect_classes=self.scene.detect_classes,
             default_confidence=self.scene.confidence,
             fps=video_fps,
+            device=self.device,
         )
         sequence_candidates: dict[int, dict] = {}
         anomalous_track_ids: set[int] = set()
@@ -197,6 +200,7 @@ class TrafficAnomalyPipeline:
         print(f"Video source mode: {self.scene.video_source_mode}")
         print(f"Tracker config: {self.scene.tracker_config}")
         print(f"Tracker backend: {tracker_backend.describe()}")
+        print(f"Inference device: {self.device or 'auto'}")
         if tracker_backend.detector_confidence != self.scene.confidence:
             print(
                 f"Detector confidence: {self.scene.confidence:.2f} "
@@ -382,6 +386,7 @@ class TrafficAnomalyPipeline:
             "processed_frame_max": processed_frame_max,
             "skip_frames": self.skip_frames,
             "tracker_config": str(self.scene.tracker_config),
+            "device": self.device or "auto",
             "display": self.display,
         }
         (artifacts.root / "run_metadata.json").write_text(json.dumps(run_metadata, indent=2), encoding="utf-8")
@@ -447,4 +452,5 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--no-display", action="store_true", help="Disable the OpenCV preview window.")
     parser.add_argument("--batch", action="store_true", help="Batch mode: disable display, show progress bar.")
     parser.add_argument("--skip-frames", type=int, default=1, help="Process every Nth frame (default: 1 = all frames).")
+    parser.add_argument("--device", default=None, help="Inference device override, e.g. cuda:0 or cpu.")
     return parser

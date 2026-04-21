@@ -49,6 +49,7 @@ checkpoints/
 
 venv/
 .venv/
+.venv312/
 __pycache__/
 anomalies/
 .video/

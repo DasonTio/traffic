@@ -13,6 +13,7 @@ def main() -> None:
         source_override=args.source,
         tracker_config_override=args.tracker_config,
         skip_frames=args.skip_frames,
+        device=args.device,
     )
     pipeline.run()
 

@@ -182,12 +182,14 @@ class TrackerBackend:
         detect_classes: list[int],
         default_confidence: float,
         fps: float,
+        device: str | None = None,
     ):
         self.model = model
         self.detect_classes = detect_classes
         self.spec = load_tracker_spec(tracker_config, default_confidence)
         self.detector_confidence = self.spec.detector_confidence
         self.tracker = _build_boxmot_tracker(self.spec, fps=fps)
+        self.device = device
 
     @property
     def tracker_type(self) -> str:
@@ -201,6 +203,7 @@ class TrackerBackend:
             frame,
             classes=self.detect_classes,
             conf=self.detector_confidence,
+            device=self.device,
             verbose=False,
         )
         result = results[0] if results else None

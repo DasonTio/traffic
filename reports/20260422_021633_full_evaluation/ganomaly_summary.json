@@ -1,0 +1,64 @@
+{
+  "model_name": "ganomaly",
+  "ground_truth": "D:\\school\\uni\\sem 6\\cv\\traffic\\dataset\\appearance_ground_truth.csv",
+  "threshold": 1.0,
+  "total_samples": 600,
+  "metrics": {
+    "total": 600,
+    "positives": 300,
+    "negatives": 300,
+    "true_positives": 226,
+    "false_positives": 7,
+    "false_negatives": 74,
+    "true_negatives": 293,
+    "precision": 0.9699570815450643,
+    "recall": 0.7533333333333333,
+    "f1": 0.848030018761726,
+    "auroc": 0.9046666666666665,
+    "auprc": 0.9356772170833777
+  },
+  "per_group": {
+    "truck": {
+      "total": 269,
+      "positives": 145,
+      "negatives": 124,
+      "true_positives": 126,
+      "false_positives": 4,
+      "false_negatives": 19,
+      "true_negatives": 120,
+      "precision": 0.9692307692307692,
+      "recall": 0.8689655172413793,
+      "f1": 0.9163636363636363,
+      "auroc": 0.9723025583982202,
+      "auprc": 0.9803871744288901
+    },
+    "car": {
+      "total": 254,
+      "positives": 115,
+      "negatives": 139,
+      "true_positives": 70,
+      "false_positives": 1,
+      "false_negatives": 45,
+      "true_negatives": 138,
+      "precision": 0.9859154929577465,
+      "recall": 0.6086956521739131,
+      "f1": 0.7526881720430109,
+      "auroc": 0.8012511729746638,
+      "auprc": 0.84769953541036
+    },
+    "bus": {
+      "total": 77,
+      "positives": 40,
+      "negatives": 37,
+      "true_positives": 30,
+      "false_positives": 2,
+      "false_negatives": 10,
+      "true_negatives": 35,
+      "precision": 0.9375,
+      "recall": 0.75,
+      "f1": 0.8333333333333334,
+      "auroc": 0.9817567567567569,
+      "auprc": 0.9826197946969066
+    }
+  }
+}

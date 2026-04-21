@@ -153,7 +153,7 @@ def _binary_auc(labels: np.ndarray, scores: np.ndarray) -> tuple[float, float]:
     precision = tps / np.maximum(tps + fps, 1)
     recall = tps / positives
 
-    auroc = float(np.trapz(np.r_[0.0, tpr, 1.0], np.r_[0.0, fpr, 1.0]))
+    auroc = float(np.trapezoid(np.r_[0.0, tpr, 1.0], np.r_[0.0, fpr, 1.0]))
     auprc = float(np.sum(np.diff(np.r_[0.0, recall]) * precision))
     return auroc, auprc
 
