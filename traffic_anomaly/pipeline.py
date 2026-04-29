@@ -10,6 +10,7 @@ import cv2
 import numpy as np
 from ultralytics import YOLO
 
+from .appearance import AppearanceScorer
 from .config import SceneConfig
 from .events import EventManager
 from .ganomaly import GANomalyScorer
@@ -18,6 +19,7 @@ from .rules import RuleEngine, build_lane_snapshots
 from .storage import RunArtifacts
 from .tracker_backend import TrackerBackend
 from .tracklets import TrackManager
+from .vae import VAEScorer
 from .visualization import draw_hud_panel, draw_scene_overlay, draw_track_box, draw_trail, COLOR_CRITICAL, COLOR_WARNING, COLOR_TRAIL
 
 
@@ -76,6 +78,7 @@ class TrafficAnomalyPipeline:
         tracker_config_override: str | None = None,
         skip_frames: int = 1,
         device: str | None = None,
+        appearance_model: str = "ganomaly",
     ):
         self.scene = SceneConfig.load(config_path, source_mode=source_mode)
         if source_override:
@@ -88,6 +91,22 @@ class TrafficAnomalyPipeline:
         self.skip_frames = max(1, skip_frames)
         self.enhancement = self.scene.raw_config.get("enhancement", {})
         self.device = device
+        self.appearance_model = appearance_model.strip().lower()
+        if self.appearance_model not in {"ganomaly", "vae"}:
+            raise ValueError("appearance_model must be one of: ganomaly, vae")
+
+    def _build_appearance_scorer(self) -> AppearanceScorer:
+        if self.appearance_model == "ganomaly":
+            return GANomalyScorer(
+                checkpoint_paths=self.scene.ganomaly_checkpoints,
+                image_size=int(self.scene.ganomaly_settings.get("image_size", 64)),
+                default_threshold=float(self.scene.ganomaly_settings.get("default_threshold", 0.02)),
+            )
+        return VAEScorer(
+            checkpoint_paths=self.scene.vae_checkpoints,
+            image_size=int(self.scene.vae_settings.get("image_size", 64)),
+            default_threshold=float(self.scene.vae_settings.get("default_threshold", 0.02)),
+        )
 
     def _open_video_capture(self):
         source = self.scene.video_source
@@ -167,11 +186,7 @@ class TrafficAnomalyPipeline:
             camera_id=self.scene.camera_id,
             grace_frames=int(self.scene.thresholds.get("event_gap_frames", 5)),
         )
-        ganomaly = GANomalyScorer(
-            checkpoint_paths=self.scene.ganomaly_checkpoints,
-            image_size=int(self.scene.ganomaly_settings.get("image_size", 64)),
-            default_threshold=float(self.scene.ganomaly_settings.get("default_threshold", 0.02)),
-        )
+        appearance_scorer = self._build_appearance_scorer()
 
         model = YOLO(str(self.scene.yolo_weights))
         tracker_backend = TrackerBackend(
@@ -200,6 +215,7 @@ class TrafficAnomalyPipeline:
         print(f"Video source mode: {self.scene.video_source_mode}")
         print(f"Tracker config: {self.scene.tracker_config}")
         print(f"Tracker backend: {tracker_backend.describe()}")
+        print(f"Appearance model: {self.appearance_model}")
         print(f"Inference device: {self.device or 'auto'}")
         if tracker_backend.detector_confidence != self.scene.confidence:
             print(
@@ -273,7 +289,7 @@ class TrafficAnomalyPipeline:
                 lane_category = lane.category if lane else None
                 foot_bev = project_point(self.scene.homography, foot_px)
                 crop = extract_crop(frame, bbox)
-                ganomaly_score = ganomaly.score_crop(crop, class_name)
+                appearance_score = appearance_scorer.score_crop(crop, class_name)
                 feature = track_manager.update(
                     frame_idx=frame_idx,
                     track_id=track_id,
@@ -285,7 +301,7 @@ class TrafficAnomalyPipeline:
                     footpoint_bev=foot_bev,
                     lane_id=lane_id,
                     lane_category=lane_category,
-                    ganomaly_score=ganomaly_score,
+                    ganomaly_score=appearance_score,
                 )
                 detections.append((feature, crop, bbox))
                 active_ids.add(track_id)
@@ -352,7 +368,8 @@ class TrafficAnomalyPipeline:
                 display_fps,
                 dict(event_manager.finalized_counts),
                 active_events=len(event_manager.active_events),
-                ganomaly_ready=ganomaly.available(),
+                ganomaly_ready=appearance_scorer.available(),
+                appearance_label=self.appearance_model.upper() if self.appearance_model == "vae" else "GANomaly",
             )
 
             if self.display:
@@ -386,6 +403,7 @@ class TrafficAnomalyPipeline:
             "processed_frame_max": processed_frame_max,
             "skip_frames": self.skip_frames,
             "tracker_config": str(self.scene.tracker_config),
+            "appearance_model": self.appearance_model,
             "device": self.device or "auto",
             "display": self.display,
         }
@@ -397,29 +415,33 @@ class TrafficAnomalyPipeline:
         return 2 if value == "critical" else 1 if value == "warning" else 0
 
     def _fuse_hits(self, feature, rule_hits) -> list[dict[str, float | str]]:
-        ganomaly_threshold = float(self.scene.thresholds.get("ganomaly_high_threshold", 1.0))
-        ganomaly_high = feature.ganomaly_score >= ganomaly_threshold
+        threshold_key = f"{self.appearance_model}_high_threshold"
+        appearance_threshold = float(
+            self.scene.thresholds.get(threshold_key, self.scene.thresholds.get("ganomaly_high_threshold", 1.0))
+        )
+        appearance_high = feature.ganomaly_score >= appearance_threshold
+        appearance_label = "GANomaly" if self.appearance_model == "ganomaly" else "VAE"
         fused: list[dict[str, float | str]] = []
 
         if rule_hits:
             for hit in rule_hits:
-                severity = "critical" if ganomaly_high else hit.severity
+                severity = "critical" if appearance_high else hit.severity
                 explanation = hit.explanation
-                if ganomaly_high:
-                    explanation += f" GANomaly support score {feature.ganomaly_score:.2f} exceeded threshold."
+                if appearance_high:
+                    explanation += f" {appearance_label} support score {feature.ganomaly_score:.2f} exceeded threshold."
                 fused.append(
                     {
                         "anomaly_type": hit.anomaly_type,
                         "severity": severity,
                         "rule_score": hit.rule_score,
                         "ganomaly_score": feature.ganomaly_score,
-                        "fused_score": max(hit.rule_score, feature.ganomaly_score if ganomaly_high else 0.0),
+                        "fused_score": max(hit.rule_score, feature.ganomaly_score if appearance_high else 0.0),
                         "explanation": explanation,
                     }
                 )
             return fused
 
-        if ganomaly_high:
+        if appearance_high:
             fused.append(
                 {
                     "anomaly_type": "appearance_anomaly",
@@ -427,7 +449,7 @@ class TrafficAnomalyPipeline:
                     "rule_score": 0.0,
                     "ganomaly_score": feature.ganomaly_score,
                     "fused_score": feature.ganomaly_score,
-                    "explanation": f"{feature.class_name} appearance score {feature.ganomaly_score:.2f} exceeded learned normal threshold.",
+                    "explanation": f"{feature.class_name} {appearance_label} score {feature.ganomaly_score:.2f} exceeded learned normal threshold.",
                 }
             )
         return fused
@@ -453,4 +475,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--batch", action="store_true", help="Batch mode: disable display, show progress bar.")
     parser.add_argument("--skip-frames", type=int, default=1, help="Process every Nth frame (default: 1 = all frames).")
     parser.add_argument("--device", default=None, help="Inference device override, e.g. cuda:0 or cpu.")
+    parser.add_argument(
+        "--appearance-model",
+        choices=["ganomaly", "vae"],
+        default="ganomaly",
+        help="Appearance scorer used for fused appearance anomaly scoring.",
+    )
     return parser

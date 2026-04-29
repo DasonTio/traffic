@@ -14,6 +14,7 @@ def main() -> None:
         tracker_config_override=args.tracker_config,
         skip_frames=args.skip_frames,
         device=args.device,
+        appearance_model=args.appearance_model,
     )
     pipeline.run()
 

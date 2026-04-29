@@ -31,6 +31,8 @@ dataset/sequence_manifest.csv
 dataset/sequence_review.csv
 anomalies/anomaly_log.csv
 
+reports/
+
 # ----------------------------
 # Model/checkpoint artifacts
 # ----------------------------

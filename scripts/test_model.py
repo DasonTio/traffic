@@ -389,6 +389,7 @@ def main() -> None:
             source_override=args.source,
             tracker_config_override=args.tracker_config,
             skip_frames=args.skip_frames,
+            appearance_model=args.appearance_model,
         )
         run_dir = pipeline.run()
     elif not run_dir.exists():

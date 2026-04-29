@@ -86,7 +86,14 @@ def draw_track_box(img, box: tuple[int, int, int, int], label: str, severity: st
     draw_label(img, label, (x1, max(20, y1 - 8)), color, 0.38)
 
 
-def draw_hud_panel(img, fps: float, counts: dict[str, int], active_events: int, ganomaly_ready: bool) -> None:
+def draw_hud_panel(
+    img,
+    fps: float,
+    counts: dict[str, int],
+    active_events: int,
+    ganomaly_ready: bool,
+    appearance_label: str = "GANomaly",
+) -> None:
     panel_height = 88
     overlay = img.copy()
     cv2.rectangle(overlay, (0, 0), (img.shape[1], panel_height), COLOR_BG_DARK, -1)
@@ -96,7 +103,7 @@ def draw_hud_panel(img, fps: float, counts: dict[str, int], active_events: int, 
     cv2.putText(img, "TRAFFIC ANOMALY MVP", (10, 20), font, 0.55, COLOR_WHITE, 1, cv2.LINE_AA)
     cv2.putText(img, f"FPS: {fps:.1f}", (10, 42), font, 0.45, COLOR_WHITE, 1, cv2.LINE_AA)
     cv2.putText(img, f"Active alerts: {active_events}", (10, 62), font, 0.45, COLOR_WHITE, 1, cv2.LINE_AA)
-    gan_label = "GANomaly: ready" if ganomaly_ready else "GANomaly: checkpoints missing"
+    gan_label = f"{appearance_label}: ready" if ganomaly_ready else f"{appearance_label}: checkpoints missing"
     cv2.putText(img, gan_label, (10, 82), font, 0.45, COLOR_WHITE, 1, cv2.LINE_AA)
 
     summary = [
