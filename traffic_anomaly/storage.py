@@ -174,6 +174,8 @@ class RunArtifacts:
     run_root: Path
     dataset_dir: Path
     min_sequence_frames: int
+    save_evidence: bool = True
+    save_normal_sequences: bool = True
 
     def __post_init__(self) -> None:
         self.run_tag = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -181,18 +183,24 @@ class RunArtifacts:
         self.frames_dir = self.root / "frames"
         self.crops_dir = self.root / "crops"
         self.root.mkdir(parents=True, exist_ok=True)
-        self.frames_dir.mkdir(parents=True, exist_ok=True)
-        self.crops_dir.mkdir(parents=True, exist_ok=True)
+        if self.save_evidence:
+            self.frames_dir.mkdir(parents=True, exist_ok=True)
+            self.crops_dir.mkdir(parents=True, exist_ok=True)
 
-        self.dataset_dir.mkdir(parents=True, exist_ok=True)
-        (self.dataset_dir / "sequences").mkdir(parents=True, exist_ok=True)
-        self.tmp_sequence_dir = self.dataset_dir / f"_tmp_sequences_{self.run_tag}"
-        self.tmp_sequence_dir.mkdir(parents=True, exist_ok=True)
-        sync_sequence_manifests(self.dataset_dir)
+        self.tmp_sequence_dir: Path | None = None
+        if self.save_normal_sequences:
+            self.dataset_dir.mkdir(parents=True, exist_ok=True)
+            (self.dataset_dir / "sequences").mkdir(parents=True, exist_ok=True)
+            self.tmp_sequence_dir = self.dataset_dir / f"_tmp_sequences_{self.run_tag}"
+            self.tmp_sequence_dir.mkdir(parents=True, exist_ok=True)
+            sync_sequence_manifests(self.dataset_dir)
 
         self.tracklet_handle, self.tracklet_writer = _open_writer(self.root / "tracklets.csv", TRACKLET_FIELDS)
         self.event_handle, self.event_writer = _open_writer(self.root / "events.csv", EVENT_FIELDS)
-        self.normal_handle, self.normal_writer = _open_writer(self.root / "normal_sequences.csv", NORMAL_FIELDS)
+        self.normal_handle = None
+        self.normal_writer = None
+        if self.save_normal_sequences:
+            self.normal_handle, self.normal_writer = _open_writer(self.root / "normal_sequences.csv", NORMAL_FIELDS)
 
     def log_tracklet(self, record: dict[str, Any]) -> None:
         self.tracklet_writer.writerow(record)
@@ -203,11 +211,15 @@ class RunArtifacts:
         self.event_handle.flush()
 
     def log_normal_sequence(self, record: dict[str, Any]) -> None:
+        if self.normal_writer is None or self.normal_handle is None:
+            return
         self.normal_writer.writerow(record)
         self.normal_handle.flush()
         self._upsert_sequence_manifest(record)
 
     def create_sequence_candidate(self, track_id: int, class_name: str, frame_idx: int) -> dict[str, Any]:
+        if self.tmp_sequence_dir is None:
+            raise RuntimeError("Normal sequence saving is disabled for this run.")
         tag = f"track_{track_id}_{frame_idx}_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}"
         temp_dir = self.tmp_sequence_dir / tag
         temp_dir.mkdir(parents=True, exist_ok=True)
@@ -289,6 +301,9 @@ class RunArtifacts:
         display,
         box: tuple[int, int, int, int],
     ) -> dict[str, str]:
+        if not self.save_evidence:
+            return {"frame_path": "", "crop_path": ""}
+
         x1, y1, x2, y2 = box
         pad = 15
         height, width = frame.shape[:2]
@@ -308,9 +323,12 @@ class RunArtifacts:
     def close(self) -> None:
         self.tracklet_handle.close()
         self.event_handle.close()
-        self.normal_handle.close()
-        shutil.rmtree(self.tmp_sequence_dir, ignore_errors=True)
-        sync_sequence_manifests(self.dataset_dir)
+        if self.normal_handle is not None:
+            self.normal_handle.close()
+        if self.tmp_sequence_dir is not None:
+            shutil.rmtree(self.tmp_sequence_dir, ignore_errors=True)
+        if self.save_normal_sequences:
+            sync_sequence_manifests(self.dataset_dir)
 
     def _upsert_sequence_manifest(self, record: dict[str, Any]) -> None:
         manifest_path = self.dataset_dir / "sequence_manifest.csv"

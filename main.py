@@ -15,6 +15,11 @@ def main() -> None:
         skip_frames=args.skip_frames,
         device=args.device,
         appearance_model=args.appearance_model,
+        detector=args.detector,
+        detector_weights=args.detector_weights,
+        save_evidence=not args.no_save_evidence,
+        save_normal_sequences=not args.no_save_normal_sequences,
+        save_tracklets=not args.no_save_tracklets,
     )
     pipeline.run()
 

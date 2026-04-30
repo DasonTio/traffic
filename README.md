@@ -54,6 +54,42 @@ python main.py --batch --source "https://www.youtube.com/watch?v=wWSSUfL2LpE"
 
 ---
 
+## Interactive Detector + Tracker Preview
+
+Use these commands to show the OpenCV preview window for each event-only pipeline. These runs disable VAE/GAN appearance scoring and avoid saving bulky evidence, normal-sequence, and tracklet artifacts. Press `q` in the preview window to stop.
+
+### YOLO11-m + ByteTrack
+
+```bash
+python main.py --source-mode local --detector yolo --detector-weights yolo11m.pt --tracker-config configs/bytetrack.yaml --appearance-model none --device cuda:0 --no-save-evidence --no-save-normal-sequences --no-save-tracklets
+```
+
+### YOLO11-m + OC-Sort
+
+```bash
+python main.py --source-mode local --detector yolo --detector-weights yolo11m.pt --tracker-config configs/ocsort.yaml --appearance-model none --device cuda:0 --no-save-evidence --no-save-normal-sequences --no-save-tracklets
+```
+
+### RT-DETR-L + ByteTrack
+
+```bash
+python main.py --source-mode local --detector rtdetr --detector-weights rtdetr-l.pt --tracker-config configs/bytetrack.yaml --appearance-model none --device cuda:0 --no-save-evidence --no-save-normal-sequences --no-save-tracklets
+```
+
+### RT-DETR-L + OC-Sort
+
+```bash
+python main.py --source-mode local --detector rtdetr --detector-weights rtdetr-l.pt --tracker-config configs/ocsort.yaml --appearance-model none --device cuda:0 --no-save-evidence --no-save-normal-sequences --no-save-tracklets
+```
+
+On Windows with the checked-in virtual environment, replace `python` with:
+
+```bash
+.\.venv312\Scripts\python.exe
+```
+
+---
+
 ## End-to-End Training & Testing
 
 Follow these steps **in order** to train both appearance-anomaly models and evaluate them.

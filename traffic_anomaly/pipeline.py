@@ -8,9 +8,9 @@ from pathlib import Path
 
 import cv2
 import numpy as np
-from ultralytics import YOLO
+from ultralytics import RTDETR, YOLO
 
-from .appearance import AppearanceScorer
+from .appearance import AppearanceScore, AppearanceScorer
 from .config import SceneConfig
 from .events import EventManager
 from .ganomaly import GANomalyScorer
@@ -43,6 +43,24 @@ def open_capture(source: str, resolution: str | None):
 
 def _format_anomaly_label(name: str) -> str:
     return name.replace("_", " ").upper()
+
+
+class NullAppearanceScorer:
+    def available(self) -> bool:
+        return False
+
+    def score_crop(self, crop: np.ndarray, class_name: str) -> float:
+        return 0.0
+
+    def score_crop_details(self, crop: np.ndarray, class_name: str) -> AppearanceScore:
+        return AppearanceScore(
+            model_name="none",
+            class_name=class_name,
+            class_group=class_name.strip().lower() or "unknown",
+            raw_score=0.0,
+            threshold=1.0,
+            normalized_score=0.0,
+        )
 
 
 def enhance_frame(frame: np.ndarray, settings: dict) -> np.ndarray:
@@ -79,6 +97,11 @@ class TrafficAnomalyPipeline:
         skip_frames: int = 1,
         device: str | None = None,
         appearance_model: str = "ganomaly",
+        detector: str = "yolo",
+        detector_weights: str | Path | None = None,
+        save_evidence: bool = True,
+        save_normal_sequences: bool = True,
+        save_tracklets: bool = True,
     ):
         self.scene = SceneConfig.load(config_path, source_mode=source_mode)
         if source_override:
@@ -92,10 +115,19 @@ class TrafficAnomalyPipeline:
         self.enhancement = self.scene.raw_config.get("enhancement", {})
         self.device = device
         self.appearance_model = appearance_model.strip().lower()
-        if self.appearance_model not in {"ganomaly", "vae"}:
-            raise ValueError("appearance_model must be one of: ganomaly, vae")
+        if self.appearance_model not in {"ganomaly", "vae", "none"}:
+            raise ValueError("appearance_model must be one of: ganomaly, vae, none")
+        self.detector = detector.strip().lower()
+        if self.detector not in {"yolo", "rtdetr"}:
+            raise ValueError("detector must be one of: yolo, rtdetr")
+        self.detector_weights = Path(detector_weights).resolve() if detector_weights else None
+        self.save_evidence = save_evidence
+        self.save_normal_sequences = save_normal_sequences
+        self.save_tracklets = save_tracklets
 
     def _build_appearance_scorer(self) -> AppearanceScorer:
+        if self.appearance_model == "none":
+            return NullAppearanceScorer()
         if self.appearance_model == "ganomaly":
             return GANomalyScorer(
                 checkpoint_paths=self.scene.ganomaly_checkpoints,
@@ -107,6 +139,12 @@ class TrafficAnomalyPipeline:
             image_size=int(self.scene.vae_settings.get("image_size", 64)),
             default_threshold=float(self.scene.vae_settings.get("default_threshold", 0.02)),
         )
+
+    def _build_detector_model(self):
+        weights = self.detector_weights or self.scene.yolo_weights
+        if self.detector == "rtdetr":
+            return RTDETR(str(weights))
+        return YOLO(str(weights))
 
     def _open_video_capture(self):
         source = self.scene.video_source
@@ -178,6 +216,8 @@ class TrafficAnomalyPipeline:
             run_root=self.scene.run_root,
             dataset_dir=self.scene.dataset_dir,
             min_sequence_frames=int(self.scene.thresholds.get("min_sequence_frames", 16)),
+            save_evidence=self.save_evidence,
+            save_normal_sequences=self.save_normal_sequences,
         )
         track_manager = TrackManager(self.scene, video_fps)
         rule_engine = RuleEngine(self.scene, video_fps)
@@ -188,7 +228,7 @@ class TrafficAnomalyPipeline:
         )
         appearance_scorer = self._build_appearance_scorer()
 
-        model = YOLO(str(self.scene.yolo_weights))
+        model = self._build_detector_model()
         tracker_backend = TrackerBackend(
             model=model,
             tracker_config=self.scene.tracker_config,
@@ -215,6 +255,8 @@ class TrafficAnomalyPipeline:
         print(f"Video source mode: {self.scene.video_source_mode}")
         print(f"Tracker config: {self.scene.tracker_config}")
         print(f"Tracker backend: {tracker_backend.describe()}")
+        print(f"Detector: {self.detector}")
+        print(f"Detector weights: {self.detector_weights or self.scene.yolo_weights}")
         print(f"Appearance model: {self.appearance_model}")
         print(f"Inference device: {self.device or 'auto'}")
         if tracker_backend.detector_confidence != self.scene.confidence:
@@ -339,7 +381,7 @@ class TrafficAnomalyPipeline:
                         key = event_manager.update_event(feature, fused_hit, frame, display_frame, bbox)
                         current_event_keys.add(key)
                 else:
-                    if feature.track_id not in anomalous_track_ids and crop.size > 0:
+                    if self.save_normal_sequences and feature.track_id not in anomalous_track_ids and crop.size > 0:
                         candidate = sequence_candidates.get(feature.track_id)
                         if candidate is None:
                             candidate = artifacts.create_sequence_candidate(feature.track_id, feature.class_name, frame_idx)
@@ -350,12 +392,13 @@ class TrafficAnomalyPipeline:
                 tracklet_record = feature.to_record()
                 tracklet_record["rule_hits"] = "|".join(hit["anomaly_type"] for hit in fused_hits)
                 tracklet_record["severity"] = "|".join(hit["severity"] for hit in fused_hits)
-                artifacts.log_tracklet(tracklet_record)
+                if self.save_tracklets:
+                    artifacts.log_tracklet(tracklet_record)
 
             event_manager.finalize_inactive(current_event_keys, frame_idx)
 
             for stale_id in track_manager.stale_ids(active_ids):
-                if stale_id not in anomalous_track_ids:
+                if self.save_normal_sequences and stale_id not in anomalous_track_ids:
                     artifacts.finalize_sequence_candidate(stale_id, sequence_candidates)
                 else:
                     artifacts.discard_sequence_candidate(stale_id, sequence_candidates)
@@ -369,7 +412,13 @@ class TrafficAnomalyPipeline:
                 dict(event_manager.finalized_counts),
                 active_events=len(event_manager.active_events),
                 ganomaly_ready=appearance_scorer.available(),
-                appearance_label=self.appearance_model.upper() if self.appearance_model == "vae" else "GANomaly",
+                appearance_label=(
+                    "None"
+                    if self.appearance_model == "none"
+                    else self.appearance_model.upper()
+                    if self.appearance_model == "vae"
+                    else "GANomaly"
+                ),
             )
 
             if self.display:
@@ -382,7 +431,7 @@ class TrafficAnomalyPipeline:
             cv2.destroyAllWindows()
 
         for track_id in list(sequence_candidates.keys()):
-            if track_id not in anomalous_track_ids:
+            if self.save_normal_sequences and track_id not in anomalous_track_ids:
                 artifacts.finalize_sequence_candidate(track_id, sequence_candidates)
             else:
                 artifacts.discard_sequence_candidate(track_id, sequence_candidates)
@@ -403,9 +452,14 @@ class TrafficAnomalyPipeline:
             "processed_frame_max": processed_frame_max,
             "skip_frames": self.skip_frames,
             "tracker_config": str(self.scene.tracker_config),
+            "detector": self.detector,
+            "detector_weights": str(self.detector_weights or self.scene.yolo_weights),
             "appearance_model": self.appearance_model,
             "device": self.device or "auto",
             "display": self.display,
+            "save_evidence": self.save_evidence,
+            "save_normal_sequences": self.save_normal_sequences,
+            "save_tracklets": self.save_tracklets,
         }
         (artifacts.root / "run_metadata.json").write_text(json.dumps(run_metadata, indent=2), encoding="utf-8")
         return artifacts.root
@@ -415,6 +469,19 @@ class TrafficAnomalyPipeline:
         return 2 if value == "critical" else 1 if value == "warning" else 0
 
     def _fuse_hits(self, feature, rule_hits) -> list[dict[str, float | str]]:
+        if self.appearance_model == "none":
+            return [
+                {
+                    "anomaly_type": hit.anomaly_type,
+                    "severity": hit.severity,
+                    "rule_score": hit.rule_score,
+                    "ganomaly_score": 0.0,
+                    "fused_score": hit.rule_score,
+                    "explanation": hit.explanation,
+                }
+                for hit in rule_hits
+            ]
+
         threshold_key = f"{self.appearance_model}_high_threshold"
         appearance_threshold = float(
             self.scene.thresholds.get(threshold_key, self.scene.thresholds.get("ganomaly_high_threshold", 1.0))
@@ -476,9 +543,35 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--skip-frames", type=int, default=1, help="Process every Nth frame (default: 1 = all frames).")
     parser.add_argument("--device", default=None, help="Inference device override, e.g. cuda:0 or cpu.")
     parser.add_argument(
+        "--detector",
+        choices=["yolo", "rtdetr"],
+        default="yolo",
+        help="Detector family to use.",
+    )
+    parser.add_argument(
+        "--detector-weights",
+        default=None,
+        help="Detector weights override, e.g. yolo11m.pt or rtdetr-l.pt.",
+    )
+    parser.add_argument(
         "--appearance-model",
-        choices=["ganomaly", "vae"],
+        choices=["ganomaly", "vae", "none"],
         default="ganomaly",
         help="Appearance scorer used for fused appearance anomaly scoring.",
+    )
+    parser.add_argument(
+        "--no-save-evidence",
+        action="store_true",
+        help="Do not save event frame/crop images.",
+    )
+    parser.add_argument(
+        "--no-save-normal-sequences",
+        action="store_true",
+        help="Do not save normal vehicle crop sequences.",
+    )
+    parser.add_argument(
+        "--no-save-tracklets",
+        action="store_true",
+        help="Do not write tracklets.csv.",
     )
     return parser
