@@ -1,325 +1,388 @@
-# Traffic Anomaly Detection
+<div align="center">
 
-A real-time traffic anomaly detection system built on YOLOv11 + multi-object tracking + rule-based violation logic, with optional appearance-anomaly scoring via **GANomaly** and **VAE** models.
+<h1>Traffic Anomaly Detection</h1>
 
----
+<p>
+Fixed-scene traffic CCTV anomaly detection with detector/tracker comparison,
+lane-aware rule logic, and appearance-model experiment support.
+</p>
 
-## Overview
+![Python](https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white)
+![OpenCV](https://img.shields.io/badge/OpenCV-5C3EE8?style=for-the-badge&logo=opencv&logoColor=white)
+![PyTorch](https://img.shields.io/badge/PyTorch-EE4C2C?style=for-the-badge&logo=pytorch&logoColor=white)
+![Ultralytics](https://img.shields.io/badge/Ultralytics-111F68?style=for-the-badge)
+![pytest](https://img.shields.io/badge/pytest-0A9EDC?style=for-the-badge&logo=pytest&logoColor=white)
 
-The pipeline processes a live YouTube CCTV stream (or a local MP4) and detects:
-- **Lane violations** — trucks/buses entering fast lanes
-- **Stopped vehicles** — vehicles halting in or near the emergency lane
-- **Wrong-way driving** — vehicles with heading misaligned to lane direction
+<p>
+  <a href="./detector_tracker_pipeline_report.pdf">Detector + Tracker Report</a>
+  |
+  <a href="./old_vs_1920x1440_pipeline_report.pdf">Resolution Comparison Report</a>
+  |
+  <a href="./ARCHITECTURE.md">Architecture Notes</a>
+</p>
 
-Detected events are saved under `runs/<timestamp>/` alongside evaluation reports.
+</div>
 
----
+## Table Of Contents
 
-## Requirements
+- [Project Overview](#project-overview)
+- [Features](#features)
+- [PDF Report Results](#pdf-report-results)
+- [Tech Stack](#tech-stack)
+- [Getting Started](#getting-started)
+- [Usage](#usage)
+- [Training Workflows](#training-workflows)
+- [Configuration](#configuration)
+- [Project Structure](#project-structure)
+- [Testing](#testing)
+- [Contributing](#contributing)
+- [License](#license)
 
-- Python 3.10+
-- macOS / Linux (Windows works too — replace `/` with `\` in paths)
+## Project Overview
 
----
+Traffic Anomaly Detection is a Python computer-vision project for analyzing a
+fixed traffic CCTV scene. It detects and tracks vehicles, maps them into
+configured lane geometry, computes per-track motion features, applies rule-based
+event logic, and can run GANomaly or VAE appearance scoring experiments.
 
-## Quick Start
+The repository is organized as a reproducible research pipeline: run inference
+on a local video or YouTube source, write event outputs under `runs/`, compare
+detector/tracker choices, train appearance models, and generate report
+artifacts.
 
-### 1. Set up the environment
+## Features
+
+| Area | What The Project Provides |
+| --- | --- |
+| Video input | Local MP4 and YouTube source support through YAML config and CLI overrides |
+| Detection | YOLO11 by default, with RT-DETR available through `--detector rtdetr` |
+| Tracking | ByteTrack and OC-Sort workflows through tracker YAML files |
+| Scene geometry | Lane polygons, lane categories, direction vectors, and homography projection |
+| Rule logic | Lane-violation and wrong-way logic, with optional stopped-vehicle and sudden-stop rules |
+| Appearance experiments | GANomaly and VAE training/scoring modules for vehicle crop anomaly experiments |
+| Outputs | Event CSVs, tracklets, evidence crops, normal sequence exports, metadata, and PDF/Markdown reports |
+
+## PDF Report Results
+
+This README reports the results from the PDF files currently present in the
+project root:
+
+- [`detector_tracker_pipeline_report.pdf`](detector_tracker_pipeline_report.pdf)
+- [`old_vs_1920x1440_pipeline_report.pdf`](old_vs_1920x1440_pipeline_report.pdf)
+
+### Detector + Tracker Event-Based Anomaly Report
+
+Source: [`detector_tracker_pipeline_report.pdf`](detector_tracker_pipeline_report.pdf)
+
+Generated from: `detector_tracker_metrics.json`
+
+Appearance models: `none`
+
+Summary from the report:
+
+- Best pipeline by F1: `YOLO11-m + OC-Sort`.
+- YOLO11-m outperformed RT-DETR-L by F1 for both tracker choices.
+- OC-Sort improved recall for both detectors.
+- RT-DETR-L + OC-Sort produced the highest recall but also the highest false-positive count.
+- These metrics isolate detector, tracker, and rule-based event logic only.
+
+Ranking by F1:
+
+| Rank | Pipeline | F1 | Precision | Recall | TP | FP |
+| ---: | --- | ---: | ---: | ---: | ---: | ---: |
+| 1 | YOLO11-m + OC-Sort | 3.2% | 1.9% | 8.7% | 11 | 560 |
+| 2 | YOLO11-m + ByteTrack | 2.9% | 1.8% | 7.1% | 9 | 491 |
+| 3 | RT-DETR-L + OC-Sort | 1.7% | 0.9% | 10.2% | 13 | 1399 |
+| 4 | RT-DETR-L + ByteTrack | 1.6% | 1.0% | 4.7% | 6 | 605 |
+
+Detailed metrics:
+
+| Pipeline | Run | GT | Pred | TP | FP | FN | Precision | Recall | F1 | Lane Agree | Class Agree |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| YOLO11-m + OC-Sort | `20260430_031045` | 127 | 571 | 11 | 560 | 116 | 1.9% | 8.7% | 3.2% | 54.5% | 100.0% |
+| YOLO11-m + ByteTrack | `20260430_020640` | 127 | 500 | 9 | 491 | 118 | 1.8% | 7.1% | 2.9% | 66.7% | 100.0% |
+| RT-DETR-L + OC-Sort | `20260430_054651` | 127 | 1412 | 13 | 1399 | 114 | 0.9% | 10.2% | 1.7% | 61.5% | 84.6% |
+| RT-DETR-L + ByteTrack | `20260430_035924` | 127 | 611 | 6 | 605 | 121 | 1.0% | 4.7% | 1.6% | 50.0% | 100.0% |
+
+The PDF also includes metric charts for F1, precision, recall, and false
+positives.
+
+### Original Size vs 1920x1440 Traffic Pipeline Report
+
+Source: [`old_vs_1920x1440_pipeline_report.pdf`](old_vs_1920x1440_pipeline_report.pdf)
+
+Evaluation window: frames `1-139079`
+
+Ground-truth events: `127`
+
+Summary from the report:
+
+- Original-size video performed better overall than 1920x1440 upscaled video.
+- Best overall pipeline: `OC-Sort + VAE` on original video.
+- Best original-size result: `OC-Sort + VAE`, F1 `3.0%`.
+- Best 1920x1440 result: `OC-Sort + VAE`, F1 `1.3%`.
+- The largest upscaled-video failure mode was false positives, especially for GANomaly-backed pipelines.
+
+Best result ranking by F1:
+
+| Rank | Pipeline | Source | F1 | Precision | Recall | TP | FP |
+| ---: | --- | --- | ---: | ---: | ---: | ---: | ---: |
+| 1 | OC-Sort + VAE | Original | 3.0% | 1.8% | 8.7% | 11 | 590 |
+| 2 | ByteTrack + VAE | Original | 2.7% | 1.7% | 7.1% | 9 | 520 |
+| 3 | OC-Sort + GANomaly | Original | 2.0% | 1.2% | 8.7% | 11 | 938 |
+| 4 | ByteTrack + GANomaly | Original | 2.0% | 1.2% | 7.1% | 9 | 755 |
+| 5 | OC-Sort + VAE | 1920x1440 | 1.3% | 0.8% | 4.7% | 6 | 757 |
+| 6 | ByteTrack + VAE | 1920x1440 | 0.5% | 0.3% | 1.6% | 2 | 641 |
+| 7 | OC-Sort + GANomaly | 1920x1440 | 0.1% | 0.0% | 4.7% | 6 | 12144 |
+| 8 | ByteTrack + GANomaly | 1920x1440 | 0.0% | 0.0% | 1.6% | 2 | 12291 |
+
+Detailed metrics:
+
+| Pipeline | Source | Run | GT | Pred | TP | FP | FN | Precision | Recall | F1 | Lane Agree | Class Agree |
+| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| ByteTrack + GANomaly | Original | `20260428_131429` | 127 | 764 | 9 | 755 | 118 | 1.2% | 7.1% | 2.0% | 66.7% | 100.0% |
+| ByteTrack + GANomaly | 1920x1440 | `20260428_212825` | 127 | 12293 | 2 | 12291 | 125 | 0.0% | 1.6% | 0.0% | 50.0% | 100.0% |
+| ByteTrack + VAE | Original | `20260428_151120` | 127 | 529 | 9 | 520 | 118 | 1.7% | 7.1% | 2.7% | 66.7% | 100.0% |
+| ByteTrack + VAE | 1920x1440 | `20260429_030727` | 127 | 643 | 2 | 641 | 125 | 0.3% | 1.6% | 0.5% | 50.0% | 100.0% |
+| OC-Sort + GANomaly | Original | `20260428_163617` | 127 | 949 | 11 | 938 | 116 | 1.2% | 8.7% | 2.0% | 54.5% | 100.0% |
+| OC-Sort + GANomaly | 1920x1440 | `20260429_064324` | 127 | 12150 | 6 | 12144 | 121 | 0.0% | 4.7% | 0.1% | 50.0% | 100.0% |
+| OC-Sort + VAE | Original | `20260428_183232` | 127 | 601 | 11 | 590 | 116 | 1.8% | 8.7% | 3.0% | 54.5% | 100.0% |
+| OC-Sort + VAE | 1920x1440 | `20260429_103232` | 127 | 763 | 6 | 757 | 121 | 0.8% | 4.7% | 1.3% | 50.0% | 100.0% |
+
+Deltas, calculated as `1920x1440 minus Original`:
+
+| Pipeline | Delta Pred | Delta TP | Delta FP | Delta FN | Delta Precision | Delta Recall | Delta F1 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| ByteTrack + GANomaly | +11529 | -7 | +11536 | +7 | -1.2 pp | -5.5 pp | -2.0 pp |
+| ByteTrack + VAE | +114 | -7 | +121 | +7 | -1.4 pp | -5.5 pp | -2.2 pp |
+| OC-Sort + GANomaly | +11201 | -5 | +11206 | +5 | -1.1 pp | -3.9 pp | -1.9 pp |
+| OC-Sort + VAE | +162 | -5 | +167 | +5 | -1.0 pp | -3.9 pp | -1.7 pp |
+
+Report interpretation:
+
+- Original-size video is the safer input for the current configuration.
+- GANomaly on 1920x1440 is especially unstable, with false positives above 12k for both trackers.
+- VAE is more conservative than GANomaly on 1920x1440, but still trails the original-size runs.
+- If 1920x1440 input must be used, thresholds and geometry should be tuned for that resolution before relying on the metrics.
+
+The PDF also includes visual charts comparing F1 score and false positives by
+pipeline and source resolution.
+
+## Tech Stack
+
+| Category | Tools |
+| --- | --- |
+| Language | Python 3.10+ |
+| Computer vision | OpenCV, NumPy |
+| Detectors | Ultralytics YOLO11, RT-DETR |
+| Trackers | ByteTrack, OC-Sort tracker configs |
+| Deep learning | PyTorch, torchvision, torchaudio |
+| Evaluation | CSV/JSON/Markdown/PDF report outputs |
+| Testing | pytest |
+
+## Getting Started
+
+Create and activate a virtual environment:
 
 ```bash
 python -m venv .venv
-source .venv/bin/activate          # Windows: .venv\Scripts\activate
+source .venv/bin/activate
+```
+
+Install dependencies:
+
+```bash
 pip install -r requirements.txt
 ```
 
-### 2. Run detection (live YouTube stream)
-
-```bash
-python main.py --batch --source-mode youtube
-```
-
-Run on the local MP4 instead (faster / reproducible):
+Run a local-video inference pass without the OpenCV preview window:
 
 ```bash
 python main.py --batch --source-mode local
 ```
 
-Override the source for a single run:
+Run the configured YouTube source:
 
 ```bash
-python main.py --batch --source "https://www.youtube.com/watch?v=wWSSUfL2LpE"
+python main.py --batch --source-mode youtube
 ```
 
-`--source` overrides `--source-mode`. `--batch` disables the OpenCV preview window.
-
----
-
-## Interactive Detector + Tracker Preview
-
-Use these commands to show the OpenCV preview window for each event-only pipeline. These runs disable VAE/GAN appearance scoring and avoid saving bulky evidence, normal-sequence, and tracklet artifacts. Press `q` in the preview window to stop.
-
-### YOLO11-m + ByteTrack
+Override the video source for one run:
 
 ```bash
-python main.py --source-mode local --detector yolo --detector-weights yolo11m.pt --tracker-config configs/bytetrack.yaml --appearance-model none --device cuda:0 --no-save-evidence --no-save-normal-sequences --no-save-tracklets
+python main.py --batch --source "/path/to/video.mp4"
 ```
 
-### YOLO11-m + OC-Sort
+## Usage
+
+Run YOLO11-m with ByteTrack and GANomaly appearance scoring:
 
 ```bash
-python main.py --source-mode local --detector yolo --detector-weights yolo11m.pt --tracker-config configs/ocsort.yaml --appearance-model none --device cuda:0 --no-save-evidence --no-save-normal-sequences --no-save-tracklets
+python main.py \
+  --batch \
+  --source-mode local \
+  --detector yolo \
+  --detector-weights yolo11m.pt \
+  --tracker-config configs/bytetrack.yaml \
+  --appearance-model ganomaly
 ```
 
-### RT-DETR-L + ByteTrack
+Run RT-DETR-L with OC-Sort and no appearance model:
 
 ```bash
-python main.py --source-mode local --detector rtdetr --detector-weights rtdetr-l.pt --tracker-config configs/bytetrack.yaml --appearance-model none --device cuda:0 --no-save-evidence --no-save-normal-sequences --no-save-tracklets
+python main.py \
+  --batch \
+  --source-mode local \
+  --detector rtdetr \
+  --detector-weights rtdetr-l.pt \
+  --tracker-config configs/ocsort.yaml \
+  --appearance-model none
 ```
 
-### RT-DETR-L + OC-Sort
-
-```bash
-python main.py --source-mode local --detector rtdetr --detector-weights rtdetr-l.pt --tracker-config configs/ocsort.yaml --appearance-model none --device cuda:0 --no-save-evidence --no-save-normal-sequences --no-save-tracklets
-```
-
-On Windows with the checked-in virtual environment, replace `python` with:
-
-```bash
-.\.venv312\Scripts\python.exe
-```
-
----
-
-## End-to-End Training & Testing
-
-Follow these steps **in order** to train both appearance-anomaly models and evaluate them.
-
----
-
-### Step 1 — Approve training sequences
-
-The appearance models train only on sequences marked `approved` in `dataset/sequence_review.csv`.
-Run the helper script to label sequences automatically:
-- Sequences overlapping a GT anomaly window → `rejected` (kept out of training)
-- Everything else → `approved` (clean normal-vehicle crops)
-
-```bash
-python scripts/approve_all_sequences.py
-```
-
-You will see a per-class summary:
-
-```
-Class          Approved   Rejected
-----------------------------------
-Bus                  20          0
-Car                 245          0
-Truck               107          0
-```
-
-Use `--dry-run` to preview changes without writing any file.
-
----
-
-### Step 2 — Train GANomaly (one checkpoint per vehicle class)
-
-```bash
-python scripts/train_ganomaly.py --group car   --epochs 20
-python scripts/train_ganomaly.py --group bus   --epochs 20
-python scripts/train_ganomaly.py --group truck --epochs 20
-```
-
-Checkpoints are saved to the paths set in `configs/scene_config.yaml`:
-
-| Class | Output path |
-|-------|-------------|
-| car   | `models/ganomaly_car.pt` |
-| bus   | `models/ganomaly_bus.pt` |
-| truck | `models/ganomaly_truck.pt` |
-
-A sibling `.csv` file with per-epoch metrics is saved alongside each checkpoint.
-
-**Optional flags**
-
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--epochs N` | 10 | Number of training epochs |
-| `--batch-size N` | 32 | Mini-batch size |
-| `--lr F` | 2e-4 | Learning rate |
-| `--workers N` | 4 | DataLoader worker threads (set `0` on Windows) |
-| `--device cpu\|cuda` | auto | Force CPU or GPU |
-| `--output PATH` | from config | Override checkpoint save path |
-
----
-
-### Step 3 — Train VAE (same class groups)
-
-```bash
-python scripts/train_vae.py --group car   --epochs 20
-python scripts/train_vae.py --group bus   --epochs 20
-python scripts/train_vae.py --group truck --epochs 20
-```
-
-VAE checkpoints go to `models/vae_{car,bus,truck}.pt`.
-
-**Additional VAE flag**
-
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--lr F` | 1e-3 | Learning rate (higher than GANomaly's default) |
-
-All other flags are the same as GANomaly.
-
----
-
-### Step 4 — Run inference on the YouTube stream
-
-Collect a fresh run of predicted events:
+Run a bounded inference pass:
 
 ```bash
 python main.py --batch --source-mode youtube --max-frames 5000
 ```
 
-`--max-frames 5000` caps at ≈ 2 min 46 s of 30 fps video — enough to cover multiple GT anomaly windows while keeping the run fast. The run is saved under `runs/<timestamp>/`.
-
----
-
-### Step 5 — Seed the appearance ground truth
-
-After inference, populate `dataset/appearance_ground_truth.csv`:
+Compare detector and tracker choices:
 
 ```bash
-python scripts/seed_appearance_ground_truth.py
+python scripts/compare_detectors_trackers.py \
+  --source .video/video.mp4.mp4 \
+  --max-frames 5000 \
+  --frame-end 5000
 ```
 
-This writes two label classes:
-- `normal` — one representative frame from each approved sequence
-- `appearance_anomaly` — event crop images saved by the pipeline in `runs/*/crops/`
-
-Use `--dry-run` to check counts before writing.
-
----
-
-### Step 6 — Full evaluation (system + both models)
-
-Run everything in one shot:
+Evaluate an existing run:
 
 ```bash
-python scripts/run_full_evaluation.py
+python scripts/evaluate_detections.py --run <run_id>
 ```
 
-This produces a report directory under `reports/<timestamp>_full_evaluation/` containing:
+## Training Workflows
 
-| File | Contents |
-|------|----------|
-| `full_evaluation_report.md` | System Precision / Recall / F1 + GANomaly vs VAE comparison table |
-| `full_evaluation_summary.json` | Machine-readable metrics payload |
-| `ganomaly/ganomaly_report.md` | GANomaly AUROC / AUPRC per class group |
-| `vae/vae_report.md` | VAE AUROC / AUPRC per class group |
-| `comparison_report.md` | Side-by-side model comparison table |
-
-**Useful flags**
-
-| Flag | Description |
-|------|-------------|
-| `--run 20260421_171727` | Evaluate a specific existing run (skips inference) |
-| `--skip-system` | Skip system-level GT evaluation, run appearance only |
-| `--skip-appearance` | Skip appearance model evaluation |
-| `--report-dir PATH` | Override the output directory |
-
----
-
-### Step 7 — Evaluate a single model (optional)
-
-Score one model against the appearance ground truth:
+Approve normal training sequences:
 
 ```bash
-python scripts/test_model.py --mode appearance --appearance-model ganomaly
-python scripts/test_model.py --mode appearance --appearance-model vae
+python scripts/approve_all_sequences.py
 ```
 
-Reports are written under `reports/appearance_test/<timestamp>_<model>/`.
-
-Evaluate system detection only (against `dataset/ground_truth_events.csv`):
+Train GANomaly checkpoints:
 
 ```bash
-python scripts/test_model.py --source-mode local
+python scripts/train_ganomaly.py --group car --epochs 20
+python scripts/train_ganomaly.py --group bus --epochs 20
+python scripts/train_ganomaly.py --group truck --epochs 20
 ```
 
-Or skip inference and evaluate an existing run:
+Train VAE checkpoints:
 
 ```bash
-python scripts/test_model.py --run 20260421_171727
+python scripts/train_vae.py --group car --epochs 20
+python scripts/train_vae.py --group bus --epochs 20
+python scripts/train_vae.py --group truck --epochs 20
 ```
 
----
+Generated model files are local artifacts and should not be committed unless
+the project explicitly decides to publish a checkpoint.
 
-## Video Source Configuration
+## Configuration
 
-Edit `configs/scene_config.yaml` to change sources or resolution:
+Primary settings live in [`configs/scene_config.yaml`](configs/scene_config.yaml).
 
-```yaml
-video:
-  default: youtube
-  youtube: https://www.youtube.com/watch?v=wWSSUfL2LpE
-  local: .video/video.mp4.mp4
-  resolution: 360p
-  fps: 30.0
+| Section | Controls |
+| --- | --- |
+| `video` | Default source mode, YouTube URL, local video path, FPS |
+| `model` | Default detector weights, confidence threshold, detected COCO classes |
+| `tracking` | Default tracker YAML |
+| `classification` | Temporal class-vote smoothing |
+| `homography` | Image-to-bird's-eye projection points |
+| `lanes` | Lane polygons, labels, categories, and direction vectors |
+| `class_lane_policy` | Vehicle classes forbidden in configured lanes |
+| `ganomaly` | Image size, aggregation settings, thresholds, checkpoint paths |
+| `vae` | Image size, latent dimension, beta, thresholds, checkpoint paths |
+| `thresholds` | Rule toggles, event timing, speed thresholds, event gaps |
+| `enhancement` | Optional CLAHE, denoising, and sharpening |
+
+Frequently used CLI overrides:
+
+| Flag | Purpose |
+| --- | --- |
+| `--source-mode local\|youtube` | Select a named source from config |
+| `--source <path-or-url>` | Override the configured source |
+| `--tracker-config <path>` | Override tracker YAML |
+| `--detector yolo\|rtdetr` | Select detector family |
+| `--detector-weights <path>` | Override detector weights |
+| `--appearance-model ganomaly\|vae\|none` | Select appearance scorer |
+| `--max-frames N` | Stop after N frames |
+| `--batch` | Disable display for batch runs |
+
+## Project Structure
+
+```text
+traffic/
+  main.py
+  README.md
+  ARCHITECTURE.md
+  requirements.txt
+  detector_tracker_pipeline_report.pdf
+  old_vs_1920x1440_pipeline_report.pdf
+  configs/
+    scene_config.yaml
+    bytetrack.yaml
+    ocsort.yaml
+  traffic_anomaly/
+    pipeline.py
+    config.py
+    geometry.py
+    tracklets.py
+    rules.py
+    events.py
+    storage.py
+    ganomaly.py
+    vae.py
+    visualization.py
+  scripts/
+    approve_all_sequences.py
+    compare_detectors_trackers.py
+    evaluate_detections.py
+    run_full_evaluation.py
+    train_ganomaly.py
+    train_vae.py
+  dataset/
+    ground_truth_events.csv
+    sequence_review.csv
+  reports/
+  runs/
+  tests/
 ```
 
-`--source` on the CLI overrides the config for a single run.
+`runs/`, generated datasets, checkpoints, model weights, and local videos are
+runtime artifacts. Keep them local unless a report or checkpoint is explicitly
+being published.
 
----
+## Testing
 
-## Running the Tests
+Run the test suite:
 
 ```bash
 pytest -q
 ```
 
----
+The tests cover configuration parsing, rule behavior, tracker helpers,
+appearance-model utilities, sequence mining, and evaluation logic.
 
-## Project Layout
+## Contributing
 
-```
-traffic/
-├── main.py                        # CLI entry point
-├── configs/
-│   └── scene_config.yaml          # All tuneable parameters
-├── traffic_anomaly/               # Runtime package
-│   ├── pipeline.py                # Main inference orchestrator
-│   ├── ganomaly.py                # GANomaly model + trainer + scorer
-│   ├── vae.py                     # VAE model + trainer + scorer
-│   ├── rules.py                   # Violation detection rules
-│   ├── events.py                  # Event lifecycle management
-│   └── ...
-├── scripts/
-│   ├── approve_all_sequences.py   # GT-aware sequence labeler (Step 1)
-│   ├── train_ganomaly.py          # GANomaly trainer CLI (Step 2)
-│   ├── train_vae.py               # VAE trainer CLI (Step 3)
-│   ├── seed_appearance_ground_truth.py  # Appearance GT builder (Step 5)
-│   ├── run_full_evaluation.py     # Full evaluation orchestrator (Step 6)
-│   ├── test_model.py              # Single-model / system evaluator (Step 7)
-│   └── evaluate_ground_truth.py  # System-level GT evaluation
-├── dataset/
-│   ├── ground_truth_events.csv    # 128 labeled traffic anomaly events
-│   ├── appearance_ground_truth.csv # Crop-level normal/anomaly labels
-│   └── sequence_review.csv        # Approved / rejected training sequences
-├── models/                        # Saved checkpoints (gitignored)
-├── runs/                          # Inference output (gitignored)
-└── tests/                         # pytest unit tests
-```
+Keep pull requests focused on one concern. Include:
 
----
+- The scenario changed.
+- Any config, threshold, source, tracker, or model-artifact impact.
+- The exact commands used for verification.
+- Screenshots only when overlay, labeling, or visual report output changes.
 
-## Model Comparison: GANomaly vs VAE
+## License
 
-| | GANomaly | VAE |
-|---|---|---|
-| **Architecture** | Encoder → Decoder → Encoder (adversarial) | Encoder → Latent (μ, σ) → Decoder |
-| **Anomaly score** | MSE between latent codes | Reconstruction loss + β·KL divergence |
-| **Strengths** | Sharper reconstructions; better fine-grained anomaly sensitivity | Simpler, more stable training; easier to reproduce |
-| **Weaknesses** | Generator/discriminator balance is fragile | Blurrier reconstructions; weaker on texture anomalies |
-| **Best for** | Production, when detection quality matters most | Rapid experimentation and stable baselines |
-
-The live `main.py` pipeline uses GANomaly for the fused anomaly score. VAE is available as an offline benchmark baseline via `scripts/test_model.py --mode appearance --appearance-model vae`.
+No license file is currently present. Add a license before distributing this
+project publicly.
