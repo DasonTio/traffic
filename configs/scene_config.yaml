@@ -1,17 +1,27 @@
 camera_id: tol_fixed_cctv_001
 
 video:
-  source: https://www.youtube.com/watch?v=wWSSUfL2LpE
+  default: youtube
+  youtube: https://www.youtube.com/watch?v=wWSSUfL2LpE
+  local: .video/video.mp4.mp4
   resolution: 360p
   fps: 30.0
 
 model:
-  weights: yolo11n.pt
-  confidence: 0.45
+  weights: yolo11m.pt
+  confidence: 0.30
   detect_classes: [2, 5, 7]
 
 tracking:
-  tracker_config: bytetrack.yaml
+  tracker_config: ocsort.yaml
+
+classification:
+  enabled: true
+  vote_decay: 0.9
+  min_conf_weight: 0.25
+  switch_margin: 1.1
+  min_switch_frames: 3
+  score_floor: 0.01
 
 output:
   run_root: runs
@@ -39,7 +49,7 @@ lanes:
   - id: fast_lane_1
     label: Fast Lane 1
     category: fast
-    direction: [-0.45, 0.89]
+    direction: [0.45, -0.89]  # bottom → top (upward in BEV)
     polygon:
       - [116, 303]
       - [152, 261]
@@ -54,7 +64,7 @@ lanes:
   - id: fast_lane_2
     label: Fast Lane 2
     category: fast
-    direction: [0.45, 0.89]
+    direction: [0.45, 0.89]   # top → bottom (downward in BEV)
     polygon:
       - [278, 193]
       - [315, 193]
@@ -70,7 +80,7 @@ lanes:
   - id: emergency_lane_1
     label: Emergency 1
     category: emergency
-    direction: [-0.48, 0.87]
+    direction: [0.48, -0.87]  # same flow as fast_lane_1 (bottom → top)
     polygon:
       - [4, 199]
       - [51, 180]
@@ -109,21 +119,49 @@ ganomaly:
   default_threshold: 0.02
   checkpoints:
     car: models/ganomaly_car.pt
-    truck_bus: models/ganomaly_truck_bus.pt
+    bus: models/ganomaly_bus.pt
+    truck: models/ganomaly_truck.pt
+
+vae:
+  image_size: 64
+  latent_dim: 96
+  beta: 1.0
+  default_threshold: 0.02
+  checkpoints:
+    car: models/vae_car.pt
+    bus: models/vae_bus.pt
+    truck: models/vae_truck.pt
 
 thresholds:
   fps_fallback: 30.0
   smoothing_window: 5
   min_sequence_frames: 16
+  # Rule enable/disable flags
+  lane_violation_enabled: true
+  wrong_way_enabled: true
+  stopped_vehicle_enabled: false    # 7.7% precision — mostly YOLO jitter on distant objects
+  sudden_stop_enabled: false        # 3.4% precision — same root cause as stopped_vehicle
+  # Rule thresholds
   lane_violation_seconds: 0.5
-  wrong_way_seconds: 1.0
+  wrong_way_seconds: 2.0
   stopped_vehicle_seconds: 2.0
   sudden_stop_window_seconds: 1.5
   stopped_speed_threshold: 2.5
-  motion_floor: 4.0
-  wrong_way_alignment_threshold: -0.25
+  motion_floor: 8.0
+  wrong_way_alignment_threshold: -0.5
   sudden_stop_delta: 6.0
   congestion_slow_ratio: 0.65
   congestion_min_active_tracks: 3
-  ganomaly_high_threshold: 1.0
+  ganomaly_high_threshold: 3.5
   event_gap_frames: 5
+  min_track_age_frames: 15
+
+enhancement:
+  enabled: false
+  clahe_enabled: true
+  clahe_clip_limit: 2.0
+  clahe_tile_size: 8
+  denoise_enabled: false
+  denoise_strength: 6
+  sharpen_enabled: true
+  sharpen_amount: 0.5

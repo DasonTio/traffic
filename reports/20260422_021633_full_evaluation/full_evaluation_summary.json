@@ -1,0 +1,90 @@
+{
+  "generated_at": "2026-04-22T02:16:33",
+  "system": {
+    "run_dir": "D:\\school\\uni\\sem 6\\cv\\traffic\\runs\\20260422_020904",
+    "gt_events": 127,
+    "pred_events": 7,
+    "true_positives": 0,
+    "false_negatives": 127,
+    "false_positives": 7,
+    "precision": 0.0,
+    "recall": 0.0,
+    "f1": 0.0,
+    "lane_agreement": 0.0,
+    "class_agreement": 0.0
+  },
+  "ganomaly": {
+    "model": "ganomaly",
+    "samples": 600,
+    "positives": 300,
+    "negatives": 300,
+    "true_positives": 226,
+    "false_positives": 7,
+    "false_negatives": 74,
+    "precision": 0.969957,
+    "recall": 0.753333,
+    "f1": 0.84803,
+    "auroc": 0.904667,
+    "auprc": 0.935677,
+    "per_group": {
+      "truck": {
+        "precision": 0.969231,
+        "recall": 0.868966,
+        "f1": 0.916364,
+        "auroc": 0.972303,
+        "auprc": 0.980387
+      },
+      "car": {
+        "precision": 0.985915,
+        "recall": 0.608696,
+        "f1": 0.752688,
+        "auroc": 0.801251,
+        "auprc": 0.8477
+      },
+      "bus": {
+        "precision": 0.9375,
+        "recall": 0.75,
+        "f1": 0.833333,
+        "auroc": 0.981757,
+        "auprc": 0.98262
+      }
+    }
+  },
+  "vae": {
+    "model": "vae",
+    "samples": 600,
+    "positives": 300,
+    "negatives": 300,
+    "true_positives": 153,
+    "false_positives": 10,
+    "false_negatives": 147,
+    "precision": 0.93865,
+    "recall": 0.51,
+    "f1": 0.660907,
+    "auroc": 0.805278,
+    "auprc": 0.849088,
+    "per_group": {
+      "truck": {
+        "precision": 0.935897,
+        "recall": 0.503448,
+        "f1": 0.654709,
+        "auroc": 0.81802,
+        "auprc": 0.856739
+      },
+      "car": {
+        "precision": 0.949153,
+        "recall": 0.486957,
+        "f1": 0.643678,
+        "auroc": 0.734439,
+        "auprc": 0.799501
+      },
+      "bus": {
+        "precision": 0.923077,
+        "recall": 0.6,
+        "f1": 0.727273,
+        "auroc": 0.941216,
+        "auprc": 0.941287
+      }
+    }
+  }
+}

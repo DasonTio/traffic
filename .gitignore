@@ -31,6 +31,8 @@ dataset/sequence_manifest.csv
 dataset/sequence_review.csv
 anomalies/anomaly_log.csv
 
+reports/
+
 # ----------------------------
 # Model/checkpoint artifacts
 # ----------------------------
@@ -46,3 +48,10 @@ checkpoints/
 !configs/
 !configs/*.yaml
 !configs/*.yml
+
+venv/
+.venv/
+.venv312/
+__pycache__/
+anomalies/
+.video/

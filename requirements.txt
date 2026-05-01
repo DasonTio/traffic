@@ -1,0 +1,10 @@
+opencv-python==4.13.0.92
+numpy==2.4.4
+# Provides YOLO11 and RT-DETR model loaders.
+ultralytics==8.4.33
+cap-from-youtube==0.2.0
+tqdm>=4.66.0
+boxmot==18.0.0
+torch
+torchvision
+torchaudio

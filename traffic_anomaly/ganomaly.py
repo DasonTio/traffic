@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -9,40 +10,14 @@ import numpy as np
 import torch
 from torch import nn
 from torch.utils.data import DataLoader, Dataset, random_split
+from tqdm import tqdm
 
-
-def class_group_for_name(class_name: str) -> str:
-    return "car" if class_name.lower() == "car" else "truck_bus"
-
-
-def preprocess_crop(crop: np.ndarray, image_size: int) -> torch.Tensor:
-    resized = cv2.resize(crop, (image_size, image_size), interpolation=cv2.INTER_LINEAR)
-    rgb = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB)
-    array = rgb.astype(np.float32) / 127.5 - 1.0
-    array = np.transpose(array, (2, 0, 1))
-    return torch.from_numpy(array)
-
-
-def _load_review_rows(dataset_dir: Path) -> list[dict[str, str]]:
-    review_path = dataset_dir / "sequence_review.csv"
-    if not review_path.exists():
-        return []
-    with review_path.open("r", newline="", encoding="utf-8") as handle:
-        return list(csv.DictReader(handle))
-
-
-def approved_frame_paths(dataset_dir: Path, class_group: str) -> list[Path]:
-    frames: list[Path] = []
-    for row in _load_review_rows(dataset_dir):
-        status = row.get("review_status", "").lower()
-        class_name = row.get("class_name", "Unknown")
-        if status not in {"approved", "usable", "yes", "true"}:
-            continue
-        if class_group_for_name(class_name) != class_group:
-            continue
-        sequence_path = Path(row["sequence_path"])
-        frames.extend(sorted(sequence_path.glob("*.jpg")))
-    return frames
+from traffic_anomaly.appearance import (
+    AppearanceScore,
+    approved_frame_paths,
+    class_group_for_name,
+    preprocess_crop,
+)
 
 
 class SequenceFrameDataset(Dataset):
@@ -166,6 +141,7 @@ class GANomalyTrainer:
         epochs: int = 10,
         lr: float = 2e-4,
         device: str | None = None,
+        workers: int = 4,
     ):
         self.dataset_dir = Path(dataset_dir)
         self.class_group = class_group
@@ -174,7 +150,11 @@ class GANomalyTrainer:
         self.batch_size = batch_size
         self.epochs = epochs
         self.lr = lr
+        self.workers = workers
         self.device = torch.device(device or ("cuda" if torch.cuda.is_available() else "cpu"))
+        
+        if self.device.type == "cuda":
+            torch.backends.cudnn.benchmark = True # Aggressive CNN acceleration
 
     def train(self, checkpoint_path: str | Path) -> TrainingResult:
         frame_paths = approved_frame_paths(self.dataset_dir, self.class_group)
@@ -187,8 +167,21 @@ class GANomalyTrainer:
         val_size = max(1, int(round(len(dataset) * 0.1)))
         train_size = len(dataset) - val_size
         train_set, val_set = random_split(dataset, [train_size, val_size])
-        train_loader = DataLoader(train_set, batch_size=self.batch_size, shuffle=True, num_workers=0, drop_last=False)
-        val_loader = DataLoader(val_set, batch_size=self.batch_size, shuffle=False, num_workers=0, drop_last=False)
+        
+        # I/O Optimizations
+        pin_memory = self.device.type == "cuda"
+        persistent_workers = self.workers > 0
+        
+        train_loader = DataLoader(
+            train_set, batch_size=self.batch_size, shuffle=True, 
+            num_workers=self.workers, drop_last=False, 
+            pin_memory=pin_memory, persistent_workers=persistent_workers
+        )
+        val_loader = DataLoader(
+            val_set, batch_size=self.batch_size, shuffle=False, 
+            num_workers=self.workers, drop_last=False,
+            pin_memory=pin_memory, persistent_workers=persistent_workers
+        )
 
         generator = Generator(latent_dim=self.latent_dim).to(self.device)
         discriminator = Discriminator().to(self.device)
@@ -201,12 +194,19 @@ class GANomalyTrainer:
 
         generator.train()
         discriminator.train()
+        
+        metrics_history = []
+        
         for epoch in range(self.epochs):
+            import time
+            epoch_start_time = time.time()
             running_g = 0.0
             running_d = 0.0
             num_batches = 0
-            for batch in train_loader:
-                batch = batch.to(self.device)
+            
+            pbar = tqdm(train_loader, desc=f"Epoch {epoch + 1}/{self.epochs}")
+            for batch in pbar:
+                batch = batch.to(self.device, non_blocking=True)
                 batch_size = batch.size(0)
                 real_targets = torch.ones((batch_size, 1), device=self.device)
                 fake_targets = torch.zeros((batch_size, 1), device=self.device)
@@ -231,11 +231,35 @@ class GANomalyTrainer:
                 running_g += float(loss_g.item())
                 running_d += float(loss_d.item())
                 num_batches += 1
+                
+                pbar.set_postfix({
+                    "G_loss": f"{loss_g.item():.4f}",
+                    "D_loss": f"{loss_d.item():.4f}"
+                })
 
+            avg_g = running_g / max(num_batches, 1)
+            avg_d = running_d / max(num_batches, 1)
+            
+            epoch_duration_sec = time.time() - epoch_start_time
+            mins = int(epoch_duration_sec // 60)
+            secs = int(epoch_duration_sec % 60)
+            duration_str = f"{mins:02d}:{secs:02d}"
+            
+            it_per_sec = num_batches / epoch_duration_sec if epoch_duration_sec > 0 else 0.0
+            
+            metrics_history.append({
+                "epoch": epoch + 1,
+                "time_duration": duration_str,
+                "total_iterations": num_batches,
+                "iterations_per_sec": round(it_per_sec, 2),
+                "avg_g_loss": avg_g,
+                "avg_d_loss": avg_d
+            })
+            
             print(
-                f"Epoch {epoch + 1}/{self.epochs} - "
-                f"G: {running_g / max(num_batches, 1):.4f} "
-                f"D: {running_d / max(num_batches, 1):.4f}"
+                f"Epoch {epoch + 1}/{self.epochs} Summary - "
+                f"Avg G: {avg_g:.4f} | "
+                f"Avg D: {avg_d:.4f}"
             )
 
         threshold = self._estimate_threshold(generator, val_loader)
@@ -251,6 +275,16 @@ class GANomalyTrainer:
             },
             checkpoint_path,
         )
+        
+        import csv
+        metrics_path = checkpoint_path.with_suffix('.csv')
+        with metrics_path.open("w", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=[
+                "epoch", "time_duration", "total_iterations", "iterations_per_sec", "avg_g_loss", "avg_d_loss"
+            ])
+            writer.writeheader()
+            writer.writerows(metrics_history)
+            
         return TrainingResult(
             checkpoint_path=checkpoint_path,
             threshold=threshold,
@@ -263,7 +297,7 @@ class GANomalyTrainer:
         scores: list[float] = []
         with torch.no_grad():
             for batch in data_loader:
-                batch = batch.to(self.device)
+                batch = batch.to(self.device, non_blocking=True)
                 _, latent, latent_reconstructed = generator(batch)
                 batch_scores = torch.mean((latent - latent_reconstructed) ** 2, dim=(1, 2, 3))
                 scores.extend(batch_scores.detach().cpu().tolist())
@@ -288,12 +322,26 @@ class GANomalyScorer:
         self.thresholds: dict[str, float] = {}
 
         for class_group, checkpoint_path in checkpoint_paths.items():
-            if not Path(checkpoint_path).exists():
+            checkpoint_path = Path(checkpoint_path)
+            if not checkpoint_path.exists():
                 continue
-            checkpoint = torch.load(checkpoint_path, map_location=self.device)
-            latent_dim = int(checkpoint.get("latent_dim", 128))
-            model = Generator(latent_dim=latent_dim).to(self.device)
-            model.load_state_dict(checkpoint["generator_state_dict"])
+            try:
+                checkpoint = torch.load(checkpoint_path, map_location=self.device)
+                latent_dim = int(checkpoint.get("latent_dim", 128))
+                state_dict = checkpoint.get("generator_state_dict")
+                if not isinstance(state_dict, dict):
+                    raise KeyError("generator_state_dict")
+                model = Generator(latent_dim=latent_dim).to(self.device)
+                model.load_state_dict(state_dict)
+            except Exception as exc:
+                reason = "incompatible or invalid checkpoint format"
+                if not isinstance(exc, (RuntimeError, KeyError, ValueError, TypeError)):
+                    reason = f"{type(exc).__name__}: {exc}"
+                warnings.warn(
+                    f"Skipping GANomaly checkpoint for '{class_group}' at {checkpoint_path}: {reason}",
+                    RuntimeWarning,
+                )
+                continue
             model.eval()
             self.models[class_group] = model
             self.thresholds[class_group] = float(checkpoint.get("threshold", self.default_threshold))
@@ -303,15 +351,39 @@ class GANomalyScorer:
         return bool(self.models)
 
     def score_crop(self, crop: np.ndarray, class_name: str) -> float:
-        if crop is None or crop.size == 0:
-            return 0.0
+        return self.score_crop_details(crop, class_name).normalized_score
+
+    def score_crop_details(self, crop: np.ndarray, class_name: str) -> AppearanceScore:
         class_group = class_group_for_name(class_name)
+        threshold = max(self.thresholds.get(class_group, self.default_threshold), 1e-6)
+        if crop is None or crop.size == 0:
+            return AppearanceScore(
+                model_name="ganomaly",
+                class_name=class_name,
+                class_group=class_group,
+                raw_score=0.0,
+                threshold=threshold,
+                normalized_score=0.0,
+            )
         model = self.models.get(class_group)
         if model is None:
-            return 0.0
+            return AppearanceScore(
+                model_name="ganomaly",
+                class_name=class_name,
+                class_group=class_group,
+                raw_score=0.0,
+                threshold=threshold,
+                normalized_score=0.0,
+            )
         tensor = preprocess_crop(crop, self.image_size).unsqueeze(0).to(self.device)
         with torch.no_grad():
             _, latent, latent_reconstructed = model(tensor)
             raw_score = torch.mean((latent - latent_reconstructed) ** 2).item()
-        threshold = max(self.thresholds.get(class_group, self.default_threshold), 1e-6)
-        return float(raw_score / threshold)
+        return AppearanceScore(
+            model_name="ganomaly",
+            class_name=class_name,
+            class_group=class_group,
+            raw_score=float(raw_score),
+            threshold=threshold,
+            normalized_score=float(raw_score / threshold),
+        )

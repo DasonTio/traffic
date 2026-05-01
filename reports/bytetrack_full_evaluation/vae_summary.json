@@ -1,0 +1,64 @@
+{
+  "model_name": "vae",
+  "ground_truth": "D:\\school\\uni\\sem 6\\cv\\traffic\\dataset\\appearance_ground_truth.csv",
+  "threshold": 1.0,
+  "total_samples": 600,
+  "metrics": {
+    "total": 600,
+    "positives": 300,
+    "negatives": 300,
+    "true_positives": 156,
+    "false_positives": 12,
+    "false_negatives": 144,
+    "true_negatives": 288,
+    "precision": 0.9285714285714286,
+    "recall": 0.52,
+    "f1": 0.6666666666666666,
+    "auroc": 0.8033666666666668,
+    "auprc": 0.8456932547322561
+  },
+  "per_group": {
+    "truck": {
+      "total": 269,
+      "positives": 145,
+      "negatives": 124,
+      "true_positives": 77,
+      "false_positives": 6,
+      "false_negatives": 68,
+      "true_negatives": 118,
+      "precision": 0.927710843373494,
+      "recall": 0.5310344827586206,
+      "f1": 0.6754385964912281,
+      "auroc": 0.8149610678531702,
+      "auprc": 0.85080337468788
+    },
+    "car": {
+      "total": 254,
+      "positives": 115,
+      "negatives": 139,
+      "true_positives": 55,
+      "false_positives": 3,
+      "false_negatives": 60,
+      "true_negatives": 136,
+      "precision": 0.9482758620689655,
+      "recall": 0.4782608695652174,
+      "f1": 0.6358381502890172,
+      "auroc": 0.7346887707225525,
+      "auprc": 0.7995831243202391
+    },
+    "bus": {
+      "total": 77,
+      "positives": 40,
+      "negatives": 37,
+      "true_positives": 24,
+      "false_positives": 3,
+      "false_negatives": 16,
+      "true_negatives": 34,
+      "precision": 0.8888888888888888,
+      "recall": 0.6,
+      "f1": 0.7164179104477612,
+      "auroc": 0.9425675675675675,
+      "auprc": 0.9425226425923707
+    }
+  }
+}

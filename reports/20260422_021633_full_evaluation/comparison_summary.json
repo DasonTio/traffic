@@ -1,0 +1,127 @@
+{
+  "generated_at": "2026-04-22T02:16:35",
+  "models": [
+    {
+      "model_name": "ganomaly",
+      "metrics": {
+        "total": 600,
+        "positives": 300,
+        "negatives": 300,
+        "true_positives": 226,
+        "false_positives": 7,
+        "false_negatives": 74,
+        "true_negatives": 293,
+        "precision": 0.9699570815450643,
+        "recall": 0.7533333333333333,
+        "f1": 0.848030018761726,
+        "auroc": 0.9046666666666665,
+        "auprc": 0.9356772170833777
+      },
+      "per_group": {
+        "truck": {
+          "total": 269,
+          "positives": 145,
+          "negatives": 124,
+          "true_positives": 126,
+          "false_positives": 4,
+          "false_negatives": 19,
+          "true_negatives": 120,
+          "precision": 0.9692307692307692,
+          "recall": 0.8689655172413793,
+          "f1": 0.9163636363636363,
+          "auroc": 0.9723025583982202,
+          "auprc": 0.9803871744288901
+        },
+        "car": {
+          "total": 254,
+          "positives": 115,
+          "negatives": 139,
+          "true_positives": 70,
+          "false_positives": 1,
+          "false_negatives": 45,
+          "true_negatives": 138,
+          "precision": 0.9859154929577465,
+          "recall": 0.6086956521739131,
+          "f1": 0.7526881720430109,
+          "auroc": 0.8012511729746638,
+          "auprc": 0.84769953541036
+        },
+        "bus": {
+          "total": 77,
+          "positives": 40,
+          "negatives": 37,
+          "true_positives": 30,
+          "false_positives": 2,
+          "false_negatives": 10,
+          "true_negatives": 35,
+          "precision": 0.9375,
+          "recall": 0.75,
+          "f1": 0.8333333333333334,
+          "auroc": 0.9817567567567569,
+          "auprc": 0.9826197946969066
+        }
+      }
+    },
+    {
+      "model_name": "vae",
+      "metrics": {
+        "total": 600,
+        "positives": 300,
+        "negatives": 300,
+        "true_positives": 153,
+        "false_positives": 10,
+        "false_negatives": 147,
+        "true_negatives": 290,
+        "precision": 0.9386503067484663,
+        "recall": 0.51,
+        "f1": 0.6609071274298056,
+        "auroc": 0.8052777777777778,
+        "auprc": 0.8490883562211772
+      },
+      "per_group": {
+        "truck": {
+          "total": 269,
+          "positives": 145,
+          "negatives": 124,
+          "true_positives": 73,
+          "false_positives": 5,
+          "false_negatives": 72,
+          "true_negatives": 119,
+          "precision": 0.9358974358974359,
+          "recall": 0.503448275862069,
+          "f1": 0.6547085201793722,
+          "auroc": 0.8180200222469411,
+          "auprc": 0.856739392530306
+        },
+        "car": {
+          "total": 254,
+          "positives": 115,
+          "negatives": 139,
+          "true_positives": 56,
+          "false_positives": 3,
+          "false_negatives": 59,
+          "true_negatives": 136,
+          "precision": 0.9491525423728814,
+          "recall": 0.48695652173913045,
+          "f1": 0.6436781609195402,
+          "auroc": 0.7344385361276196,
+          "auprc": 0.7995011595810556
+        },
+        "bus": {
+          "total": 77,
+          "positives": 40,
+          "negatives": 37,
+          "true_positives": 24,
+          "false_positives": 2,
+          "false_negatives": 16,
+          "true_negatives": 35,
+          "precision": 0.9230769230769231,
+          "recall": 0.6,
+          "f1": 0.7272727272727274,
+          "auroc": 0.9412162162162163,
+          "auprc": 0.9412871213568494
+        }
+      }
+    }
+  ]
+}

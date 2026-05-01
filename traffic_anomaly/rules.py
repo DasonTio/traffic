@@ -52,6 +52,10 @@ class RuleEngine:
         self.scene = scene
         self.fps = max(fps, 1.0)
         self.thresholds = scene.thresholds
+        self.lane_violation_enabled = bool(self.thresholds.get("lane_violation_enabled", True))
+        self.wrong_way_enabled = bool(self.thresholds.get("wrong_way_enabled", True))
+        self.stopped_vehicle_enabled = bool(self.thresholds.get("stopped_vehicle_enabled", True))
+        self.sudden_stop_enabled = bool(self.thresholds.get("sudden_stop_enabled", True))
         self.lane_violation_frames = max(1, int(round(self.thresholds.get("lane_violation_seconds", 0.5) * self.fps)))
         self.wrong_way_frames = max(1, int(round(self.thresholds.get("wrong_way_seconds", 1.0) * self.fps)))
         self.stopped_frames = max(1, int(round(self.thresholds.get("stopped_vehicle_seconds", 2.0) * self.fps)))

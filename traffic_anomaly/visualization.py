@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import cv2
+import numpy as np
 
 from .config import LaneConfig
 
@@ -12,6 +13,22 @@ COLOR_WARNING = (0, 220, 255)
 COLOR_CRITICAL = (60, 60, 255)
 COLOR_NORMAL = (200, 200, 200)
 COLOR_WHITE = (255, 255, 255)
+COLOR_TRAIL = (0, 255, 200)
+
+
+def draw_trail(img, points: list[tuple[int, int]], color=COLOR_TRAIL, max_thickness: int = 3) -> None:
+    """Draw a fading trail polyline. Older segments are thinner and more transparent."""
+    if len(points) < 2:
+        return
+    num_segments = len(points) - 1
+    overlay = img.copy()
+    for i in range(num_segments):
+        progress = (i + 1) / num_segments  # 0→1, older→newer
+        alpha = 0.15 + 0.85 * progress
+        thickness = max(1, int(max_thickness * progress))
+        faded_color = tuple(int(c * alpha) for c in color)
+        cv2.line(overlay, points[i], points[i + 1], faded_color, thickness, cv2.LINE_AA)
+    cv2.addWeighted(overlay, 0.7, img, 0.3, 0, img)
 
 
 def draw_label(img, text: str, position: tuple[int, int], color, font_scale: float = 0.45, thickness: int = 1) -> None:
@@ -69,7 +86,14 @@ def draw_track_box(img, box: tuple[int, int, int, int], label: str, severity: st
     draw_label(img, label, (x1, max(20, y1 - 8)), color, 0.38)
 
 
-def draw_hud_panel(img, fps: float, counts: dict[str, int], active_events: int, ganomaly_ready: bool) -> None:
+def draw_hud_panel(
+    img,
+    fps: float,
+    counts: dict[str, int],
+    active_events: int,
+    ganomaly_ready: bool,
+    appearance_label: str = "GANomaly",
+) -> None:
     panel_height = 88
     overlay = img.copy()
     cv2.rectangle(overlay, (0, 0), (img.shape[1], panel_height), COLOR_BG_DARK, -1)
@@ -79,7 +103,7 @@ def draw_hud_panel(img, fps: float, counts: dict[str, int], active_events: int, 
     cv2.putText(img, "TRAFFIC ANOMALY MVP", (10, 20), font, 0.55, COLOR_WHITE, 1, cv2.LINE_AA)
     cv2.putText(img, f"FPS: {fps:.1f}", (10, 42), font, 0.45, COLOR_WHITE, 1, cv2.LINE_AA)
     cv2.putText(img, f"Active alerts: {active_events}", (10, 62), font, 0.45, COLOR_WHITE, 1, cv2.LINE_AA)
-    gan_label = "GANomaly: ready" if ganomaly_ready else "GANomaly: checkpoints missing"
+    gan_label = f"{appearance_label}: ready" if ganomaly_ready else f"{appearance_label}: checkpoints missing"
     cv2.putText(img, gan_label, (10, 82), font, 0.45, COLOR_WHITE, 1, cv2.LINE_AA)
 
     summary = [
