@@ -384,5 +384,5 @@ Keep pull requests focused on one concern. Include:
 
 ## License
 
-No license file is currently present. Add a license before distributing this
-project publicly.
+This project is distributed under the MIT License. See [`LICENSE`](LICENSE) for
+details.
